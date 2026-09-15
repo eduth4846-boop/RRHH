@@ -1,0 +1,50 @@
+{
+  "name": "Bitácora — Gestión de Talento Humano",
+  "short_name": "Bitácora",
+  "description": "Control de personal y RRHH: nómina, asistencia, documentos y firma, objetivos, reconocimientos, beneficios, adelantos de sueldo, canal de denuncias, comunicación, activos, encuestas y reportes.",
+  "id": "/bitacora-rrhh/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "background_color": "#EEF1F7",
+  "theme_color": "#1E3A75",
+  "orientation": "any",
+  "lang": "es-CO",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjIyIiBmaWxsPSIjMUUzQTc1Ii8+PHRleHQgeD0iNTAiIHk9IjY3IiBmb250LWZhbWlseT0iQXJpYWwsIEhlbHZldGljYSwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSI1NCIgZmlsbD0iI2ZmZmZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QjwvdGV4dD48Y2lyY2xlIGN4PSI3OCIgY3k9IjIzIiByPSI5IiBmaWxsPSIjRjVBNjIzIi8+PC9zdmc+",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjIyIiBmaWxsPSIjMUUzQTc1Ii8+PHRleHQgeD0iNTAiIHk9IjY3IiBmb250LWZhbWlseT0iQXJpYWwsIEhlbHZldGljYSwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSI1NCIgZmlsbD0iI2ZmZmZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QjwvdGV4dD48Y2lyY2xlIGN4PSI3OCIgY3k9IjIzIiByPSI5IiBmaWxsPSIjRjVBNjIzIi8+PC9zdmc+",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nómina",
+      "short_name": "Nómina",
+      "description": "Ir directo a la liquidación de nómina",
+      "url": "./index.html?view=nomina"
+    },
+    {
+      "name": "Asistencia",
+      "short_name": "Asistencia",
+      "description": "Registrar marcaciones y permisos",
+      "url": "./index.html?view=asistencia"
+    },
+    {
+      "name": "Colaboradores",
+      "short_name": "Colaboradores",
+      "description": "Ver la ficha del personal",
+      "url": "./index.html?view=empleados"
+    }
+  ]
+}
