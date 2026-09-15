@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bitácora · Gestión de Talento Humano</title>
+<meta name="theme-color" content="#1E3A75">
+<link rel="stylesheet" href="./assets/styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{background:var(--primary); background:linear-gradient(160deg,var(--primary) 0%, var(--primary) 45%, var(--bg) 45%);}
+  .home{min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:60px 20px;}
+  .home .mark{width:54px; height:54px; border-radius:14px; background:var(--primary-3); color:#fff; display:flex; align-items:center; justify-content:center; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:24px; margin-bottom:16px;}
+  .home h1{color:#fff; font-size:26px; margin-bottom:4px;}
+  .home .sub{color:rgba(255,255,255,.8); font-size:13px; margin-bottom:40px;}
+  .home-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; width:100%; max-width:920px;}
+  @media (max-width:760px){ .home-grid{grid-template-columns:1fr;} }
+  .home-card{background:#fff; border-radius:16px; padding:26px 22px; box-shadow:var(--shadow-lg); text-decoration:none; color:var(--text); display:block;}
+  .home-card .ico{font-size:28px; margin-bottom:12px;}
+  .home-card h2{font-size:16px; margin-bottom:6px;}
+  .home-card p{font-size:12.5px; color:var(--muted); line-height:1.5;}
+  .home-card .go{margin-top:14px; font-size:12.5px; font-weight:700; color:var(--primary-2);}
+</style>
+</head>
+<body>
+<div class="home">
+  <div class="mark">B</div>
+  <h1>Bitácora</h1>
+  <div class="sub">Gestión de Talento Humano — elige a dónde quieres ir</div>
+  <div class="home-grid">
+    <a class="home-card" href="./admin/">
+      <div class="ico">🗂️</div>
+      <h2>Panel de administración</h2>
+      <p>Colaboradores, nómina, asistencia, documentos, denuncias, activos, encuestas, objetivos, reconocimientos, beneficios y reportes.</p>
+      <div class="go">Entrar al panel →</div>
+    </a>
+    <a class="home-card" href="./usuarios/">
+      <div class="ico">🙋</div>
+      <h2>Portal del colaborador</h2>
+      <p>Cada colaborador consulta su perfil, su asistencia reciente y solicita permisos o vacaciones.</p>
+      <div class="go">Entrar al portal →</div>
+    </a>
+    <a class="home-card" href="./checador/">
+      <div class="ico">🕒</div>
+      <h2>Marcación de entrada y salida</h2>
+      <p>Terminal para marcar asistencia de forma manual, con NFC o con huella / Face ID del dispositivo.</p>
+      <div class="go">Abrir marcación →</div>
+    </a>
+  </div>
+</div>
+</body>
+</html>
