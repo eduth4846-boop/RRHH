@@ -289,10 +289,45 @@ tbody tr:hover{background:#FAFBFD;}
   .search-wrap{max-width:none;}
   .dropdown-panel{right:16px; width:calc(100vw - 32px);}
 }
+.hidden{display:none !important;}
+
+/* ---------- Portal del colaborador / Kiosco de marcación ----------
+   Estas dos pantallas viven en el mismo archivo que el panel del
+   administrador; comparten la misma paleta y componentes (.card,
+   .field, .btn, .pill, .table-wrap, .stat, .grid-2/4) y añaden solo
+   lo que no existía todavía. */
+.wrap{max-width:760px; margin:0 auto; padding:22px 16px 60px;}
+.topbrand{display:flex; align-items:center; gap:10px; margin-bottom:18px;}
+.topbrand .mark{width:36px; height:36px; border-radius:9px; background:var(--primary); display:flex; align-items:center; justify-content:center; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; color:#fff; font-size:16px;}
+.topbrand .name{font-family:'Plus Jakarta Sans',sans-serif; font-weight:700; font-size:17px; color:var(--primary);}
+.topbrand .sub{font-size:11.5px; color:var(--muted); margin-top:1px;}
+.btn-block{width:100%; justify-content:center;}
+.pill-info{background:var(--info-soft); color:#0369A1;}
+.back-link{display:inline-flex; align-items:center; gap:5px; color:var(--muted); font-size:12.5px; cursor:pointer; margin-bottom:14px; background:none; border:none; font-family:inherit; padding:0;}
+.back-link:hover{color:var(--primary);}
+
+.kiosk-status{width:100%; padding:26px; border-radius:16px; text-align:center; font-size:16px; font-weight:700; transition:background .2s,color .2s;}
+.kiosk-status.idle{background:var(--primary-soft); color:var(--primary);}
+.kiosk-status.ok{background:var(--success-soft); color:#15803D;}
+.kiosk-status.err{background:var(--danger-soft); color:#B91C1C;}
+.kiosk-clock{font-family:'Plus Jakarta Sans',sans-serif; font-size:44px; font-weight:800; color:var(--primary); text-align:center; margin:6px 0 2px;}
+.kiosk-date{text-align:center; color:var(--muted); font-size:13px; margin-bottom:18px; text-transform:capitalize;}
+.mode-tabs{display:flex; gap:8px; margin-bottom:16px;}
+.mode-tabs button{flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:#fff; font-weight:700; font-size:12.5px; cursor:pointer; color:var(--muted);}
+.mode-tabs button.active{background:var(--primary); color:#fff; border-color:var(--primary);}
+
+.mode-select-screen{min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); padding:20px;}
+.mode-select-card{max-width:440px; width:100%; text-align:center;}
+.mode-select-card .brandbig{width:56px; height:56px; border-radius:14px; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:24px; margin:0 auto 14px;}
+.mode-opt{display:flex; align-items:center; gap:12px; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:#fff; cursor:pointer; margin-top:10px; text-align:left;}
+.mode-opt:hover{border-color:var(--primary-3); box-shadow:var(--shadow);}
+.mode-opt .ico{width:38px; height:38px; border-radius:10px; background:var(--primary-soft); color:var(--primary); display:flex; align-items:center; justify-content:center; font-size:18px; flex:0 0 auto;}
+.mode-opt .t{font-weight:700; font-size:13.5px;}
+.mode-opt .s{font-size:11.5px; color:var(--muted); margin-top:1px;}
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app hidden" id="rootAdmin">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="mark" id="brandMark">B</div>
@@ -302,6 +337,8 @@ tbody tr:hover{background:#FAFBFD;}
     <div class="navgroups" id="navgroups"></div>
     <div class="sidebar-foot">
       Bitácora RRHH · aplicación web progresiva
+      <button onclick="mostrarPortal()">👤 Portal del colaborador</button>
+      <button onclick="mostrarKiosco()">📡 Kiosco de marcación</button>
       <button id="installBtn" hidden onclick="installApp()">⬇ Instalar aplicación</button>
     </div>
   </aside>
@@ -332,16 +369,135 @@ tbody tr:hover{background:#FAFBFD;}
   </div>
 </div>
 
+<div id="rootPortal" class="hidden"></div>
+<div id="rootKiosco" class="hidden"></div>
+<div id="rootModeSelect" class="hidden"></div>
+
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+/* =========================================================
+   SUPABASE — conexión con la base de datos
+   ========================================================= */
+const SUPABASE_URL = 'https://hkszdgfdnffgsvmxqgwd.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhrc3pkZ2ZkbmZmZ3N2bXhxZ3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0NjIxNjUsImV4cCI6MjEwNTAzODE2NX0.fNEXV5Y1_FQT-0kpVkjhUtFxoRZQhSMJxZjtSX4MZ1w';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* Esta pantalla es la del ADMINISTRADOR. Las mismas credenciales
+   (URL + anon key) las usan también /colaboradores/index.html
+   (portal del colaborador) y /marcacion/index.html (kiosco de
+   ingreso/salida por NFC o biometría), así los tres quedan
+   conectados a la misma base de datos en Supabase. */
+
+function empRowToApp(r){
+  return { id:r.id, nombre:r.nombre, cedula:r.cedula, cargo:r.cargo, area:r.area,
+    contrato:r.contrato, ingreso:r.ingreso, salario:Number(r.salario)||0, estado:r.estado,
+    email:r.email||'', tel:r.tel||'', supervisor:r.supervisor||'', huella:!!r.huella, puntos:r.puntos||0 };
+}
+function empAppToRow(e){
+  return { id:e.id, nombre:e.nombre, cedula:e.cedula, cargo:e.cargo, area:e.area,
+    contrato:e.contrato, ingreso:e.ingreso, salario:e.salario, estado:e.estado,
+    email:e.email, tel:e.tel, supervisor:e.supervisor, huella:e.huella, puntos:e.puntos };
+}
+function attRowToApp(r){
+  return { id:r.id, empId:r.empleado_id, fecha:r.fecha, entrada:r.entrada, salida:r.salida, estado:r.estado, metodo:r.metodo };
+}
+async function sbGuardarEmpleado(e){
+  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error) console.warn('Supabase (empleados):', error.message); }
+  catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function sbActualizarEstadoEmpleado(id, estado){
+  try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error) console.warn('Supabase (empleados):', error.message); }
+  catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function sbGuardarParametros(cfg){
+  try{
+    const row = { id:1, smmlv:cfg.smmlv, aux_transporte:cfg.auxTransporte, salud_pct:cfg.saludPct, pension_pct:cfg.pensionPct,
+      horas_mes:cfg.horasMes, r_hed:cfg.rHED, r_hen:cfg.rHEN, r_hefd:cfg.rHEFD, r_hefn:cfg.rHEFN,
+      pct_cesantias:cfg.pctCesantias, pct_intereses_cesantias:cfg.pctIntCesantias, pct_prima:cfg.pctPrima, pct_vacaciones:cfg.pctVacaciones,
+      pct_arl:cfg.pctArl, pct_caja_compensacion:cfg.pctCaja, pct_sena:cfg.pctSena, pct_icbf:cfg.pctIcbf,
+      pct_salud_empleador:cfg.pctSaludPatronal, pct_pension_empleador:cfg.pctPensionPatronal, exoneracion_aportes:cfg.exoneracion,
+      company_name:cfg.companyName, company_nit:cfg.companyNit };
+    const {error} = await sb.from('parametros').upsert(row); if(error) console.warn('Supabase (parametros):', error.message);
+  } catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function sbRegistrarMarcacion(rec){
+  try{
+    const row = { id:rec.id, empleado_id:rec.empId, fecha:rec.fecha, entrada:rec.entrada, salida:rec.salida, estado:rec.estado, metodo:rec.metodo||'Manual' };
+    const {error} = await sb.from('asistencia').upsert(row); if(error) console.warn('Supabase (asistencia):', error.message);
+  } catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function sbBorrarTodosLosEmpleados(){
+  const {error} = await sb.from('empleados').delete().not('id','is', null);
+  if(error) throw error;
+}
+/* Solicitudes (permisos y vacaciones) — usadas tanto por el admin
+   (DB.leaveRequests) como por el portal del colaborador. */
+function solRowToApp(r){
+  const dias = Math.max(1, Math.round((new Date(r.fecha_fin)-new Date(r.fecha_inicio))/86400000)+1);
+  return { id:r.id, empId:r.empleado_id, tipo:r.tipo, inicio:r.fecha_inicio, fin:r.fecha_fin, dias, motivo:r.motivo||'', estado:r.estado };
+}
+function solAppToRow(l){
+  return { id:l.id, empleado_id:l.empId, tipo:l.tipo, fecha_inicio:l.inicio, fecha_fin:l.fin, motivo:l.motivo, estado:l.estado };
+}
+async function sbGuardarSolicitud(l){
+  try{ const {error} = await sb.from('solicitudes').upsert(solAppToRow(l)); if(error) console.warn('Supabase (solicitudes):', error.message); }
+  catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function sbActualizarSolicitud(id, estado){
+  try{ const {error} = await sb.from('solicitudes').update({estado}).eq('id', id); if(error) console.warn('Supabase (solicitudes):', error.message); }
+  catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+/* Huellas (credenciales WebAuthn registradas desde el kiosco) */
+async function sbGuardarHuella(h){
+  try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error) console.warn('Supabase (huellas):', error.message); }
+  catch(err){ console.warn('Supabase no disponible:', err.message); }
+}
+async function cargarDesdeSupabase(){
+  try{
+    const [{data:emps, error:e1}, {data:atts, error:e2}, {data:par, error:e3}, {data:sols, error:e4}, {data:huellasData, error:e5}] = await Promise.all([
+      sb.from('empleados').select('*'), sb.from('asistencia').select('*'), sb.from('parametros').select('*').eq('id',1).maybeSingle(),
+      sb.from('solicitudes').select('*'), sb.from('huellas').select('*'),
+    ]);
+    if(!e1 && emps && emps.length){ DB.empleados = emps.map(empRowToApp); }
+    else if(e1){ console.warn('Supabase (empleados):', e1.message); }
+    if(!e2 && atts){ DB.attendance = atts.map(attRowToApp); }
+    else if(e2){ console.warn('Supabase (asistencia):', e2.message); }
+    if(!e4 && sols && sols.length){ DB.leaveRequests = sols.map(solRowToApp); }
+    else if(e4){ console.warn('Supabase (solicitudes):', e4.message); }
+    if(!e5 && huellasData){ DB.huellas = huellasData; }
+    else if(e5){ console.warn('Supabase (huellas):', e5.message); }
+    if(!e3 && par){
+      Object.assign(CFG, { smmlv:Number(par.smmlv)||CFG.smmlv, auxTransporte:Number(par.aux_transporte)||0,
+        saludPct:Number(par.salud_pct)||0, pensionPct:Number(par.pension_pct)||0, horasMes:Number(par.horas_mes)||230,
+        rHED:Number(par.r_hed)||0, rHEN:Number(par.r_hen)||0, rHEFD:Number(par.r_hefd)||0, rHEFN:Number(par.r_hefn)||0,
+        pctCesantias:Number(par.pct_cesantias)||CFG.pctCesantias, pctIntCesantias:Number(par.pct_intereses_cesantias)||CFG.pctIntCesantias,
+        pctPrima:Number(par.pct_prima)||CFG.pctPrima, pctVacaciones:Number(par.pct_vacaciones)||CFG.pctVacaciones,
+        pctArl:Number(par.pct_arl)||CFG.pctArl, pctCaja:Number(par.pct_caja_compensacion)||CFG.pctCaja,
+        pctSena:Number(par.pct_sena)||CFG.pctSena, pctIcbf:Number(par.pct_icbf)||CFG.pctIcbf,
+        pctSaludPatronal:Number(par.pct_salud_empleador)||CFG.pctSaludPatronal, pctPensionPatronal:Number(par.pct_pension_empleador)||CFG.pctPensionPatronal,
+        exoneracion: par.exoneracion_aportes!==null? !!par.exoneracion_aportes : CFG.exoneracion,
+        companyName: par.company_name||CFG.companyName, companyNit: par.company_nit||CFG.companyNit });
+    } else if(e3){ console.warn('Supabase (parametros):', e3.message); }
+  } catch(err){
+    console.warn('No se pudo conectar a Supabase, se usan los datos de demostración locales:', err.message);
+  }
+}
+
 /* =========================================================
    CONFIGURACIÓN Y CONSTANTES
    ========================================================= */
 const DEMO_TODAY = '2026-09-15';
 let CFG = { smmlv:1423500, auxTransporte:200000, saludPct:4, pensionPct:4, horasMes:230,
   rHED:25, rHEN:75, rHEFD:100, rHEFN:150,
+  /* Prestaciones sociales y aportes patronales — Código Sustantivo del Trabajo
+     y Ley 1607 de 2012 (exoneración de aportes). Valores por defecto según
+     la normativa vigente; edítalos desde "Parámetros legales" si cambian. */
+  pctCesantias:8.33, pctIntCesantias:12, pctPrima:8.33, pctVacaciones:4.17,
+  pctArl:0.522, pctCaja:4, pctSena:2, pctIcbf:3, pctSaludPatronal:8.5, pctPensionPatronal:12,
+  exoneracion:true,
   companyName:'Grupo Meridiano S.A.S.', companyNit:'900.482.117-3', companyLogo:null };
 
 /* =========================================================
@@ -363,6 +519,7 @@ const DB = {
   ],
   payrollRuns:[ {id:'run1', periodo:'Agosto 2026 (1-31)', fechaPago:'2026-08-30', estado:'Cerrada', detalles:[]} ],
   attendance:[],
+  huellas:[], // credenciales WebAuthn del kiosco: {credential_id, empleado_id, public_key, counter}
   shifts:[
     {id:'shift1', nombre:'Administrativo', inicio:'08:00', fin:'17:00', dias:'Lun–Vie'},
     {id:'shift2', nombre:'Operaciones / Bodega', inicio:'06:30', fin:'15:30', dias:'Lun–Sáb'},
@@ -839,7 +996,10 @@ function renderEmpleados(){
   return `
   <div class="section-title">
     <div class="field" style="margin:0; width:300px;"><input placeholder="Buscar por nombre, cargo o área…" value="${state.empSearch}" oninput="state.empSearch=this.value; renderApp();"></div>
-    <button class="btn btn-primary" onclick="abrirFormEmpleado()">+ Nuevo colaborador</button>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-danger" onclick="abrirBorrarTodosEmpleados()">🗑️ Borrar todos los registros</button>
+      <button class="btn btn-primary" onclick="abrirFormEmpleado()">+ Nuevo colaborador</button>
+    </div>
   </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Colaborador</th><th>Área</th><th>Contrato</th><th>Ingreso</th><th class="num-cell">Salario base</th><th>Huella</th><th>Estado</th><th></th></tr></thead>
@@ -883,9 +1043,31 @@ function guardarEmpleado(id){
     estado:$('#f_estado').value, email:$('#f_email').value.trim(), tel:$('#f_tel').value.trim(), supervisor:$('#f_super').value.trim(),
   };
   if(!data.nombre || !data.cargo){ toast('Completa al menos nombre y cargo'); return; }
-  if(id){ Object.assign(emp(id), data); toast('Colaborador actualizado'); }
-  else{ DB.empleados.push({id:uid('emp'), huella:false, puntos:0, ...data}); toast('Colaborador creado'); }
+  let saved;
+  if(id){ saved = Object.assign(emp(id), data); toast('Colaborador actualizado'); }
+  else{ saved = {id:uid('emp'), huella:false, puntos:0, ...data}; DB.empleados.push(saved); toast('Colaborador creado'); }
+  sbGuardarEmpleado(saved);
   closeModal(); renderApp();
+}
+function abrirBorrarTodosEmpleados(){
+  const body = `
+    <p style="font-size:13px; margin-bottom:12px;">Esta acción borrará <strong>todos</strong> los colaboradores y su asistencia asociada, tanto en esta pantalla como en la base de datos de Supabase. No se puede deshacer.</p>
+    <div class="field"><label>Escribe la contraseña para confirmar</label><input type="password" id="bt_pass" placeholder="••••" maxlength="4" autocomplete="off"></div>`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-danger" onclick="confirmarBorrarTodosEmpleados()">Borrar todo</button>`;
+  openModal('Borrar todos los registros de colaboradores', body, foot);
+  setTimeout(()=>{ const i=$('#bt_pass'); if(i) i.focus(); }, 30);
+}
+async function confirmarBorrarTodosEmpleados(){
+  const pass = ($('#bt_pass')||{}).value;
+  if(pass !== '0000'){ toast('Contraseña incorrecta'); return; }
+  try{
+    await sbBorrarTodosLosEmpleados();
+    DB.empleados = []; DB.attendance = [];
+    DB.payrollRuns.forEach(r=> r.detalles = []);
+    closeModal(); toast('Todos los registros de colaboradores fueron eliminados'); renderApp();
+  } catch(err){
+    toast('No se pudo borrar en Supabase: '+err.message);
+  }
 }
 function resumenMensual(empId){
   const regs = DB.attendance.filter(a=>a.empId===empId && a.fecha.slice(0,7)===DEMO_TODAY.slice(0,7));
@@ -950,7 +1132,7 @@ function verPerfil(empId){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
   openModal('Perfil del colaborador', body, foot, true);
 }
-function registrarHuella(empId){ emp(empId).huella=true; toast('Huella registrada correctamente'); verPerfil(empId); }
+function registrarHuella(empId){ const e=emp(empId); e.huella=true; sbGuardarEmpleado(e); toast('Huella registrada correctamente'); verPerfil(empId); }
 function renovarContrato(empId){
   const e = emp(empId);
   DB.documents.push({id:uid('doc'), empId, nombre:'Otrosí — renovación de contrato', tipo:'Otrosí', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
@@ -959,9 +1141,9 @@ function renovarContrato(empId){
 function terminarTrabajo(empId){
   const e = emp(empId);
   if(!confirm(`¿Confirmas terminar el vínculo laboral de ${e.nombre}?`)) return;
-  e.estado='Inactivo'; toast('Colaborador marcado como inactivo'); closeModal(); if(state.view==='empleados') renderApp();
+  e.estado='Inactivo'; sbActualizarEstadoEmpleado(e.id,'Inactivo'); toast('Colaborador marcado como inactivo'); closeModal(); if(state.view==='empleados') renderApp();
 }
-function reactivarTrabajo(empId){ emp(empId).estado='Activo'; toast('Colaborador reactivado'); closeModal(); if(state.view==='empleados') renderApp(); }
+function reactivarTrabajo(empId){ const e=emp(empId); e.estado='Activo'; sbActualizarEstadoEmpleado(e.id,'Activo'); toast('Colaborador reactivado'); closeModal(); if(state.view==='empleados') renderApp(); }
 function generarDocumentoDesdePerfil(empId){
   DB.documents.push({id:uid('doc'), empId, nombre:'Certificación laboral', tipo:'Certificación', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
   toast('Documento generado, pendiente de firma'); closeModal(); navigate('documentos');
@@ -986,6 +1168,32 @@ function calcularDetalle(det, e){
   det.salarioProp=Math.round(salarioProp); det.extraTotal=Math.round(extraHED+extraHEN+extraHEFD+extraHEFN);
   det.auxTr=Math.round(auxTr); det.devengado=Math.round(devengado); det.salud=Math.round(salud); det.pension=Math.round(pension);
   det.deducciones=Math.round(deducciones); det.neto=Math.round(devengado-deducciones);
+
+  /* Prestaciones sociales y aportes patronales — no aplican a contratos
+     por prestación de servicios (no generan relación laboral subordinada
+     según el CST, art. 34 y ss.) */
+  const esIndependiente = e.contrato === 'Prestación de servicios';
+  const diasAno = det.dias; // días del período actual, base para la provisión mensual proporcional
+  if(esIndependiente){
+    det.cesantias=0; det.interesesCesantias=0; det.prima=0; det.vacaciones=0; det.aportesPatronales=0;
+  } else {
+    const baseCesPrima = salarioProp + auxTr; // el auxilio de transporte sí integra la base de cesantías y prima
+    const cesantias = baseCesPrima * diasAno / 360 * (CFG.pctCesantias/8.33); // ajustable si cambia la tasa
+    const interesesCesantias = cesantias * diasAno * (CFG.pctIntCesantias/100) / 360;
+    const prima = baseCesPrima * diasAno / 360 * (CFG.pctPrima/8.33);
+    const vacaciones = salarioProp * diasAno / 720 * (CFG.pctVacaciones/4.17); // las vacaciones no llevan auxilio de transporte
+    const factorExon = CFG.exoneracion && (e.salario < CFG.smmlv*10) ? 0 : 1;
+    const arl = salarioProp * CFG.pctArl/100;
+    const caja = salarioProp * CFG.pctCaja/100;
+    const sena = salarioProp * CFG.pctSena/100 * factorExon;
+    const icbf = salarioProp * CFG.pctIcbf/100 * factorExon;
+    const saludPatronal = salarioProp * CFG.pctSaludPatronal/100 * factorExon;
+    const pensionPatronal = salarioProp * CFG.pctPensionPatronal/100;
+    const aportesPatronales = arl + caja + sena + icbf + saludPatronal + pensionPatronal;
+    det.cesantias=Math.round(cesantias); det.interesesCesantias=Math.round(interesesCesantias);
+    det.prima=Math.round(prima); det.vacaciones=Math.round(vacaciones); det.aportesPatronales=Math.round(aportesPatronales);
+  }
+  det.costoEmpresa = Math.round(devengado + det.cesantias+det.interesesCesantias+det.prima+det.vacaciones+det.aportesPatronales);
   return det;
 }
 function runActivo(){ return DB.payrollRuns.find(r=>r.id===state.payrollOpenRun) || DB.payrollRuns[DB.payrollRuns.length-1]; }
@@ -1117,7 +1325,20 @@ function verLiquidacion(runId, empId){
         </tbody></table></div>
       </div>
     </div>
-    <div class="card-bar" style="margin-top:16px; justify-content:center; font-size:16px; background:linear-gradient(135deg,var(--success),#15803D);">Líquido a recibir · ${fmtCOP(det.neto)}</div>`;
+    <div class="card-bar" style="margin-top:16px; justify-content:center; font-size:16px; background:linear-gradient(135deg,var(--success),#15803D);">Líquido a recibir · ${fmtCOP(det.neto)}</div>
+    ${e.contrato==='Prestación de servicios'? `<p style="font-size:11.5px; color:var(--muted); margin-top:10px;">Este contrato es por prestación de servicios: no genera prestaciones sociales ni aportes patronales, según el Código Sustantivo del Trabajo.</p>` : `
+    <div class="card-bar" style="font-size:12.5px; padding:9px 14px; margin-top:16px;">Provisión de prestaciones sociales del período</div>
+    <div class="table-wrap" style="border-radius:0 0 8px 8px; border-top:none;"><table><tbody>
+      <tr><td>Cesantías (${CFG.pctCesantias}%)</td><td class="num-cell">${fmtCOP(det.cesantias)}</td></tr>
+      <tr><td>Intereses de cesantías (${CFG.pctIntCesantias}% anual)</td><td class="num-cell">${fmtCOP(det.interesesCesantias)}</td></tr>
+      <tr><td>Prima de servicios (${CFG.pctPrima}%)</td><td class="num-cell">${fmtCOP(det.prima)}</td></tr>
+      <tr><td>Vacaciones (${CFG.pctVacaciones}%)</td><td class="num-cell">${fmtCOP(det.vacaciones)}</td></tr>
+    </tbody></table></div>
+    <div class="card-bar" style="font-size:12.5px; padding:9px 14px; margin-top:10px;">Aportes patronales a seguridad social y parafiscales${CFG.exoneracion?' (con exoneración Ley 1607/2012)':''}</div>
+    <div class="table-wrap" style="border-radius:0 0 8px 8px; border-top:none;"><table><tbody>
+      <tr><td>ARL, caja de compensación, salud, pensión, SENA e ICBF</td><td class="num-cell">${fmtCOP(det.aportesPatronales)}</td></tr>
+    </tbody></table></div>
+    <div class="card-bar" style="margin-top:10px; justify-content:center; font-size:14px; background:linear-gradient(135deg,var(--primary),var(--primary-3));">Costo total para la empresa · ${fmtCOP(det.costoEmpresa)}</div>`}`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button><button class="btn btn-primary" onclick="descargarLiquidacion('${runId}','${empId}')">⬇ Descargar</button>`;
   openModal('Detalle de liquidación', body, foot, true);
 }
@@ -1211,9 +1432,10 @@ function registrarMarcacion(){
   const empId = $('#mk_emp').value, tipo = $('#mk_tipo').value;
   const horaSim = tipo==='Entrada' ? '08:0'+Math.floor(Math.random()*9) : '17:0'+Math.floor(Math.random()*9);
   let rec = DB.attendance.find(a=>a.empId===empId && a.fecha===DEMO_TODAY);
-  if(!rec){ rec = {id:uid('att'), empId, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo'}; DB.attendance.push(rec); }
+  if(!rec){ rec = {id:uid('att'), empId, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo:'Manual'}; DB.attendance.push(rec); }
   if(tipo==='Entrada'){ rec.entrada=horaSim; rec.estado = horaSim > '08:05' ? 'Tarde' : 'A tiempo'; }
   else { rec.salida=horaSim; }
+  sbRegistrarMarcacion(rec);
   closeModal(); toast('Marcación registrada'); renderApp();
 }
 function abrirTurno(){
@@ -1244,11 +1466,14 @@ function abrirPermiso(){
 function crearPermiso(){
   const ini=$('#pm_ini').value, fin=$('#pm_fin').value;
   const dias = Math.max(1, Math.round((new Date(fin)-new Date(ini))/86400000)+1);
-  DB.leaveRequests.push({id:uid('leave'), empId:$('#pm_emp').value, tipo:$('#pm_tipo').value, inicio:ini, fin, dias, motivo:$('#pm_motivo').value.trim()||'—', estado:'Pendiente'});
+  const nueva = {id:uid('leave'), empId:$('#pm_emp').value, tipo:$('#pm_tipo').value, inicio:ini, fin, dias, motivo:$('#pm_motivo').value.trim()||'—', estado:'Pendiente'};
+  DB.leaveRequests.push(nueva);
+  sbGuardarSolicitud(nueva);
   closeModal(); toast('Solicitud enviada'); renderApp();
 }
 function resolverPermiso(id, estado){
   const l = DB.leaveRequests.find(x=>x.id===id); l.estado=estado;
+  sbActualizarSolicitud(id, estado);
   if(estado==='Aprobado' && l.tipo==='Vacaciones'){
     openModal('', `<div style="text-align:center; padding:10px 0;">
         <div style="width:64px; height:64px; border-radius:50%; background:var(--success); color:#fff; display:flex; align-items:center; justify-content:center; font-size:30px; margin:0 auto 14px;">✓</div>
@@ -1931,15 +2156,308 @@ function renderParametros(){
       <div class="field"><label>Nocturna</label><input type="number" id="cf_hen" value="${CFG.rHEN}"></div></div>
     <div class="field-row"><div class="field"><label>Festiva diurna</label><input type="number" id="cf_hefd" value="${CFG.rHEFD}"></div>
       <div class="field"><label>Festiva nocturna</label><input type="number" id="cf_hefn" value="${CFG.rHEFN}"></div></div>
+
+    <h3 style="font-size:13px; margin:18px 0 4px;">Prestaciones sociales y aportes patronales (%)</h3>
+    <p style="font-size:11.5px; color:var(--muted); margin-bottom:10px;">Fórmulas según el Código Sustantivo del Trabajo (arts. 186, 249, 306) y la Ley 50 de 1990 (art. 99). No aplican a contratos por prestación de servicios. Fuente: Ministerio del Trabajo.</p>
+    <div class="field-row"><div class="field"><label>Cesantías (mensual)</label><input type="number" step="0.01" id="cf_cesantias" value="${CFG.pctCesantias}"></div>
+      <div class="field"><label>Intereses de cesantías (anual)</label><input type="number" step="0.01" id="cf_intces" value="${CFG.pctIntCesantias}"></div></div>
+    <div class="field-row"><div class="field"><label>Prima de servicios (mensual)</label><input type="number" step="0.01" id="cf_prima" value="${CFG.pctPrima}"></div>
+      <div class="field"><label>Vacaciones (mensual)</label><input type="number" step="0.01" id="cf_vacaciones" value="${CFG.pctVacaciones}"></div></div>
+    <div class="field-row"><div class="field"><label>ARL (según clase de riesgo)</label><input type="number" step="0.001" id="cf_arl" value="${CFG.pctArl}"></div>
+      <div class="field"><label>Caja de compensación familiar</label><input type="number" step="0.01" id="cf_caja" value="${CFG.pctCaja}"></div></div>
+    <div class="field-row"><div class="field"><label>SENA</label><input type="number" step="0.01" id="cf_sena" value="${CFG.pctSena}"></div>
+      <div class="field"><label>ICBF</label><input type="number" step="0.01" id="cf_icbf" value="${CFG.pctIcbf}"></div></div>
+    <div class="field-row"><div class="field"><label>Salud a cargo del empleador</label><input type="number" step="0.01" id="cf_saludpat" value="${CFG.pctSaludPatronal}"></div>
+      <div class="field"><label>Pensión a cargo del empleador</label><input type="number" step="0.01" id="cf_pensionpat" value="${CFG.pctPensionPatronal}"></div></div>
+    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); margin:6px 0 16px;">
+      <input type="checkbox" id="cf_exon" ${CFG.exoneracion?'checked':''} style="width:auto;">
+      Aplica exoneración de aportes a salud, SENA e ICBF (Ley 1607 de 2012, art. 25 — para colaboradores con salario inferior a 10 SMMLV)
+    </label>
+
     <button class="btn btn-primary" onclick="guardarParametros()">Guardar parámetros</button>
   </div>`;
 }
 function guardarParametros(){
-  CFG = { smmlv:Number($('#cf_smmlv').value)||CFG.smmlv, auxTransporte:Number($('#cf_aux').value)||0,
+  CFG = { ...CFG, smmlv:Number($('#cf_smmlv').value)||CFG.smmlv, auxTransporte:Number($('#cf_aux').value)||0,
     saludPct:Number($('#cf_salud').value)||0, pensionPct:Number($('#cf_pension').value)||0, horasMes:Number($('#cf_horas').value)||230,
-    rHED:Number($('#cf_hed').value)||0, rHEN:Number($('#cf_hen').value)||0, rHEFD:Number($('#cf_hefd').value)||0, rHEFN:Number($('#cf_hefn').value)||0 };
-  DB.payrollRuns.forEach(run=>{ if(run.estado!=='Cerrada') run.detalles.forEach(d=>calcularDetalle(d, emp(d.empId))); });
+    rHED:Number($('#cf_hed').value)||0, rHEN:Number($('#cf_hen').value)||0, rHEFD:Number($('#cf_hefd').value)||0, rHEFN:Number($('#cf_hefn').value)||0,
+    pctCesantias:Number($('#cf_cesantias').value)||0, pctIntCesantias:Number($('#cf_intces').value)||0,
+    pctPrima:Number($('#cf_prima').value)||0, pctVacaciones:Number($('#cf_vacaciones').value)||0,
+    pctArl:Number($('#cf_arl').value)||0, pctCaja:Number($('#cf_caja').value)||0,
+    pctSena:Number($('#cf_sena').value)||0, pctIcbf:Number($('#cf_icbf').value)||0,
+    pctSaludPatronal:Number($('#cf_saludpat').value)||0, pctPensionPatronal:Number($('#cf_pensionpat').value)||0,
+    exoneracion: $('#cf_exon').checked };
+  DB.payrollRuns.forEach(run=>{ if(run.estado!=='Cerrada') run.detalles.forEach(d=>{ const e=emp(d.empId); if(e) calcularDetalle(d, e); }); });
+  sbGuardarParametros(CFG);
   toast('Parámetros actualizados'); renderApp();
+}
+
+/* =========================================================
+   NAVEGACIÓN ENTRE MODOS
+   (Panel administrador / Portal del colaborador / Kiosco de
+   marcación) — antes eran 3 archivos separados; ahora conviven
+   en esta misma página y se conmutan sin recargar.
+   ========================================================= */
+function ocultarTodosLosRoots(){
+  ['rootAdmin','rootPortal','rootKiosco','rootModeSelect'].forEach(id=>{ const el=$('#'+id); if(el) el.classList.add('hidden'); });
+}
+function mostrarSelector(){ ocultarTodosLosRoots(); $('#rootModeSelect').classList.remove('hidden'); location.hash=''; renderModeSelect(); }
+function mostrarAdmin(){ ocultarTodosLosRoots(); $('#rootAdmin').classList.remove('hidden'); location.hash='admin'; renderApp(); }
+function mostrarPortal(){ ocultarTodosLosRoots(); $('#rootPortal').classList.remove('hidden'); location.hash='colaborador'; portalState = {view:'login', empId:null}; renderPortal(); }
+function mostrarKiosco(){ ocultarTodosLosRoots(); $('#rootKiosco').classList.remove('hidden'); location.hash='kiosco'; renderKiosco(); }
+function renderModeSelect(){
+  $('#rootModeSelect').innerHTML = `
+    <div class="mode-select-screen">
+      <div class="mode-select-card">
+        <div class="brandbig">${iniciales(CFG.companyName||'Bitácora')}</div>
+        <h2 style="margin-bottom:4px;">${CFG.companyName||'Bitácora'}</h2>
+        <p class="muted" style="font-size:12.5px; margin-bottom:6px;">Bitácora · Gestión de Talento Humano — elige cómo quieres entrar</p>
+        <div class="mode-opt" onclick="mostrarAdmin()"><div class="ico">🗂️</div><div><div class="t">Panel del administrador</div><div class="s">Nómina, colaboradores, asistencia y todos los módulos de RRHH</div></div></div>
+        <div class="mode-opt" onclick="mostrarPortal()"><div class="ico">👤</div><div><div class="t">Portal del colaborador</div><div class="s">Consulta tu perfil, tu asistencia y envía solicitudes con tu cédula</div></div></div>
+        <div class="mode-opt" onclick="mostrarKiosco()"><div class="ico">📡</div><div><div class="t">Kiosco de marcación</div><div class="s">Marcar entrada o salida por huella, NFC o de forma manual</div></div></div>
+      </div>
+    </div>`;
+}
+
+/* =========================================================
+   PORTAL DEL COLABORADOR
+   Autoservicio por número de cédula, sin contraseña: perfil,
+   resumen del mes, historial de marcaciones y solicitudes de
+   permiso/vacaciones (comparte DB.leaveRequests con el admin).
+   ========================================================= */
+let portalState = { view:'login', empId:null };
+function renderPortal(){
+  const root = $('#rootPortal');
+  const e = portalState.empId? emp(portalState.empId) : null;
+  if(portalState.view!=='perfil' || !e){ root.innerHTML = portalLoginHtml(); return; }
+  root.innerHTML = portalPerfilHtml(e);
+}
+function portalLoginHtml(){
+  return `
+  <div class="wrap">
+    <button class="back-link" onclick="mostrarSelector()">← Volver</button>
+    <div class="topbrand"><div class="mark">${iniciales(CFG.companyName||'B')}</div><div><div class="name">${CFG.companyName||'Bitácora'}</div><div class="sub">Portal del colaborador</div></div></div>
+    <div class="card card-pad" style="max-width:420px;">
+      <div class="field"><label>Número de cédula</label><input id="portal_cedula" placeholder="Ej. 1.020.455.332" onkeydown="if(event.key==='Enter') portalIngresar();"></div>
+      <button class="btn btn-primary btn-block" onclick="portalIngresar()">Ingresar</button>
+      <p class="hint" style="margin-top:10px;">Escribe el mismo número de cédula que aparece en tu perfil, sin necesidad de contraseña.</p>
+    </div>
+  </div>`;
+}
+function portalIngresar(){
+  const ced = ($('#portal_cedula').value||'').trim();
+  if(!ced){ toast('Escribe tu número de cédula'); return; }
+  const e = DB.empleados.find(x=>x.cedula && x.cedula.replace(/\D/g,'')===ced.replace(/\D/g,''));
+  if(!e){ toast('No encontramos un colaborador con esa cédula'); return; }
+  if(e.estado!=='Activo'){ toast('Este colaborador no tiene un contrato activo'); return; }
+  portalState = {view:'perfil', empId:e.id}; renderPortal();
+}
+function portalSalir(){ portalState = {view:'login', empId:null}; renderPortal(); }
+function portalPerfilHtml(e){
+  const r = resumenMensual(e.id);
+  const misMarcaciones = DB.attendance.filter(a=>a.empId===e.id).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,15);
+  const misSolicitudes = DB.leaveRequests.filter(l=>l.empId===e.id).slice().sort((a,b)=>(b.inicio||'').localeCompare(a.inicio||''));
+  return `
+  <div class="wrap">
+    <button class="back-link" onclick="portalSalir()">← Cambiar de colaborador</button>
+    <div class="topbrand"><div class="mark">${iniciales(e.nombre)}</div><div><div class="name">${e.nombre}</div><div class="sub">${e.cargo} · ${e.area}</div></div></div>
+
+    <div class="grid-4" style="margin-bottom:18px;">
+      <div class="card stat"><div class="num">${r.asistencias}</div><div class="lbl">Asistencias (mes)</div></div>
+      <div class="card stat"><div class="num">${r.atrasos}</div><div class="lbl">Atrasos</div></div>
+      <div class="card stat"><div class="num">${r.inasistencias}</div><div class="lbl">Ausencias</div></div>
+      <div class="card stat"><div class="num">${e.puntos}</div><div class="lbl">Puntos</div></div>
+    </div>
+
+    <div class="section-title"><h2>Mi perfil</h2></div>
+    <div class="table-wrap card" style="margin-bottom:20px;"><table><tbody>
+      <tr><td style="font-weight:600; width:40%;">Cédula</td><td>${e.cedula}</td></tr>
+      <tr><td style="font-weight:600;">Contrato</td><td>${e.contrato}</td></tr>
+      <tr><td style="font-weight:600;">Fecha de ingreso</td><td>${fmtDate(e.ingreso)}</td></tr>
+      <tr><td style="font-weight:600;">Supervisor</td><td>${e.supervisor||'—'}</td></tr>
+      <tr><td style="font-weight:600;">Correo</td><td>${e.email||'—'}</td></tr>
+      <tr><td style="font-weight:600;">Teléfono</td><td>${e.tel||'—'}</td></tr>
+      <tr><td style="font-weight:600;">Huella biométrica</td><td>${e.huella? '<span class="pill pill-green">Registrada</span>' : '<span class="pill pill-gray">No registrada — puedes registrarla en el kiosco</span>'}</td></tr>
+    </tbody></table></div>
+
+    <div class="section-title"><h2>Mis marcaciones</h2><span class="hint">Últimos registros</span></div>
+    <div class="table-wrap card" style="margin-bottom:20px;"><table>
+      <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Estado</th><th>Método</th></tr></thead>
+      <tbody>${misMarcaciones.length? misMarcaciones.map(a=>`<tr><td>${fmtDate(a.fecha)}</td><td>${a.entrada||'—'}</td><td>${a.salida||'—'}</td><td>${a.estado}</td><td>${a.metodo||'Manual'}</td></tr>`).join('') : `<tr><td colspan="5">${emptyState('Sin marcaciones','Aún no tienes marcaciones registradas.')}</td></tr>`}</tbody>
+    </table></div>
+
+    <div class="section-title"><h2>Mis solicitudes</h2><button class="btn btn-primary" onclick="portalAbrirSolicitud()">+ Nueva solicitud</button></div>
+    <div class="table-wrap card"><table>
+      <thead><tr><th>Tipo</th><th>Inicio</th><th>Fin</th><th>Motivo</th><th>Estado</th></tr></thead>
+      <tbody>${misSolicitudes.length? misSolicitudes.map(l=>`<tr><td>${l.tipo}</td><td>${fmtDate(l.inicio)}</td><td>${fmtDate(l.fin)}</td><td>${l.motivo}</td><td>${pillPermiso(l.estado)}</td></tr>`).join('') : `<tr><td colspan="5">${emptyState('Sin solicitudes','Aún no has enviado solicitudes de permiso o vacaciones.')}</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+function portalAbrirSolicitud(){
+  const body = `
+    <div class="field"><label>Tipo</label><select id="ps_tipo">${['Vacaciones','Permiso remunerado','Permiso no remunerado','Incapacidad','Licencia de maternidad/paternidad'].map(o=>`<option>${o}</option>`).join('')}</select></div>
+    <div class="field-row"><div class="field"><label>Fecha inicio</label><input type="date" id="ps_ini" value="${DEMO_TODAY}"></div>
+      <div class="field"><label>Fecha fin</label><input type="date" id="ps_fin" value="${DEMO_TODAY}"></div></div>
+    <div class="field"><label>Motivo</label><textarea id="ps_motivo" placeholder="Describe brevemente el motivo…"></textarea></div>`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="portalEnviarSolicitud()">Enviar solicitud</button>`;
+  openModal('Nueva solicitud de permiso o vacaciones', body, foot);
+}
+function portalEnviarSolicitud(){
+  const ini=$('#ps_ini').value, fin=$('#ps_fin').value;
+  const dias = Math.max(1, Math.round((new Date(fin)-new Date(ini))/86400000)+1);
+  const nueva = {id:uid('leave'), empId:portalState.empId, tipo:$('#ps_tipo').value, inicio:ini, fin, dias, motivo:$('#ps_motivo').value.trim()||'—', estado:'Pendiente'};
+  DB.leaveRequests.push(nueva);
+  sbGuardarSolicitud(nueva);
+  closeModal(); toast('Solicitud enviada, queda pendiente de aprobación'); renderPortal();
+}
+
+/* =========================================================
+   KIOSCO DE MARCACIÓN
+   Tres modos: Huella (WebAuthn del propio dispositivo), NFC
+   (Web NFC API, solo Chrome/Android sobre HTTPS) y Manual.
+   ========================================================= */
+let kioscoState = { modo:'manual' };
+let _kioskClockTimer = null;
+function renderKiosco(){
+  const root = $('#rootKiosco');
+  root.innerHTML = `
+  <div class="wrap">
+    <button class="back-link" onclick="mostrarSelector()">← Volver</button>
+    <div class="topbrand"><div class="mark">${iniciales(CFG.companyName||'B')}</div><div><div class="name">${CFG.companyName||'Bitácora'}</div><div class="sub">Kiosco de marcación</div></div></div>
+    <div class="kiosk-clock" id="kioskClock">--:--:--</div>
+    <div class="kiosk-date" id="kioskDate"></div>
+    <div class="mode-tabs">
+      <button class="${kioscoState.modo==='huella'?'active':''}" onclick="kioscoModo('huella')">🖐️ Huella</button>
+      <button class="${kioscoState.modo==='nfc'?'active':''}" onclick="kioscoModo('nfc')">📶 NFC</button>
+      <button class="${kioscoState.modo==='manual'?'active':''}" onclick="kioscoModo('manual')">⌨️ Manual</button>
+    </div>
+    <div id="kioskStatus" class="kiosk-status idle">Selecciona un modo de marcación para comenzar.</div>
+    <div id="kioskBody" style="margin-top:16px;"></div>
+  </div>`;
+  actualizarReloj();
+  if(!_kioskClockTimer) _kioskClockTimer = setInterval(actualizarReloj, 1000);
+  renderKioscoBody();
+}
+function actualizarReloj(){
+  const el = $('#kioskClock'); if(!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const dEl = $('#kioskDate'); if(dEl) dEl.textContent = now.toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+function kioscoModo(m){ kioscoState.modo=m; renderKiosco(); }
+function kioscoSetStatus(tipo, msg){ const el=$('#kioskStatus'); if(el){ el.className='kiosk-status '+tipo; el.textContent=msg; } }
+function renderKioscoBody(){
+  const el = $('#kioskBody'); if(!el) return;
+  if(kioscoState.modo==='manual'){
+    el.innerHTML = `
+      <div class="card card-pad">
+        <div class="field"><label>Número de cédula</label><input id="kk_cedula" placeholder="Escribe tu cédula" onkeydown="if(event.key==='Enter') kioscoMarcarManual();"></div>
+        <button class="btn btn-primary btn-block" onclick="kioscoMarcarManual()">Marcar entrada / salida</button>
+      </div>`;
+  } else if(kioscoState.modo==='nfc'){
+    const soportado = 'NDEFReader' in window;
+    el.innerHTML = `
+      <div class="card card-pad">
+        <p class="hint" style="margin-bottom:12px;">Acerca la tarjeta o llavero NFC del colaborador al lector del dispositivo. Requiere Chrome para Android sobre HTTPS.</p>
+        <button class="btn btn-primary btn-block" ${soportado?'':'disabled'} onclick="kioscoEscanearNFC()">📶 Escanear tarjeta NFC</button>
+        ${soportado? '' : '<p class="hint" style="margin-top:8px; color:var(--danger);">Web NFC no está disponible en este navegador/dispositivo.</p>'}
+      </div>`;
+  } else if(kioscoState.modo==='huella'){
+    const soportado = !!window.PublicKeyCredential;
+    el.innerHTML = `
+      <div class="card card-pad">
+        <p class="hint" style="margin-bottom:12px;">Usa el sensor biométrico, Face ID o Windows Hello de este equipo. Primero registra la huella de cada colaborador una vez en él.</p>
+        <div class="field"><label>Cédula (para registrar huella)</label><input id="kk_cedula_h" placeholder="Cédula del colaborador"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn-ghost" ${soportado?'':'disabled'} onclick="kioscoRegistrarHuella()">Registrar huella</button>
+          <button class="btn btn-primary" ${soportado?'':'disabled'} onclick="kioscoMarcarHuella()">Marcar con huella</button>
+        </div>
+        ${soportado? '' : '<p class="hint" style="margin-top:8px; color:var(--danger);">Este navegador no soporta WebAuthn.</p>'}
+      </div>`;
+  }
+}
+function kioscoBuscarPorCedula(ced){
+  return DB.empleados.find(x=>x.cedula && x.cedula.replace(/\D/g,'')===String(ced).replace(/\D/g,'') && x.estado==='Activo');
+}
+function kioscoRegistrarMarcacion(e, metodo){
+  const now = new Date();
+  const hora = now.toTimeString().slice(0,5);
+  let rec = DB.attendance.find(a=>a.empId===e.id && a.fecha===DEMO_TODAY);
+  if(!rec){ rec = {id:uid('att'), empId:e.id, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo}; DB.attendance.push(rec); }
+  let tipo;
+  if(!rec.entrada){ rec.entrada=hora; rec.estado = hora > '08:05' ? 'Tarde' : 'A tiempo'; rec.metodo=metodo; tipo='Entrada'; }
+  else if(!rec.salida){ rec.salida=hora; rec.metodo=metodo; tipo='Salida'; }
+  else { kioscoSetStatus('err', `${e.nombre} ya tiene entrada y salida registradas hoy.`); return; }
+  sbRegistrarMarcacion(rec);
+  kioscoSetStatus('ok', `${tipo} registrada — ${e.nombre} (${hora})`);
+}
+function kioscoMarcarManual(){
+  const ced = ($('#kk_cedula').value||'').trim();
+  if(!ced){ kioscoSetStatus('err','Escribe un número de cédula.'); return; }
+  const e = kioscoBuscarPorCedula(ced);
+  if(!e){ kioscoSetStatus('err','No se encontró un colaborador activo con esa cédula.'); return; }
+  kioscoRegistrarMarcacion(e, 'Manual');
+  const i=$('#kk_cedula'); if(i) i.value='';
+}
+async function kioscoEscanearNFC(){
+  if(!('NDEFReader' in window)){ kioscoSetStatus('err','Web NFC no disponible en este dispositivo/navegador.'); return; }
+  try{
+    const reader = new NDEFReader();
+    await reader.scan();
+    kioscoSetStatus('idle','Acerca la tarjeta al lector…');
+    reader.onreading = (event)=>{
+      let cedula = '';
+      for(const record of event.message.records){
+        if(record.recordType==='text'){ cedula = new TextDecoder(record.encoding||'utf-8').decode(record.data); break; }
+      }
+      if(!cedula) cedula = event.serialNumber||'';
+      const e = kioscoBuscarPorCedula(cedula);
+      if(!e){ kioscoSetStatus('err','Tarjeta no reconocida — verifica que tenga grabada la cédula del colaborador.'); return; }
+      kioscoRegistrarMarcacion(e, 'NFC');
+    };
+    reader.onreadingerror = ()=> kioscoSetStatus('err','No se pudo leer la tarjeta, intenta de nuevo.');
+  } catch(err){ kioscoSetStatus('err','No se pudo activar el lector NFC: '+err.message); }
+}
+function b64uToBuf(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
+function bufToB64u(buf){ let bin=''; new Uint8Array(buf).forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+async function kioscoRegistrarHuella(){
+  if(!window.PublicKeyCredential){ kioscoSetStatus('err','Este navegador no soporta WebAuthn.'); return; }
+  const ced = ($('#kk_cedula_h').value||'').trim();
+  const e = kioscoBuscarPorCedula(ced);
+  if(!e){ kioscoSetStatus('err','No se encontró un colaborador activo con esa cédula.'); return; }
+  try{
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const cred = await navigator.credentials.create({ publicKey:{
+      challenge, rp:{ name: CFG.companyName||'Bitácora RRHH' },
+      user:{ id: new TextEncoder().encode(e.id), name:e.cedula, displayName:e.nombre },
+      pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+      authenticatorSelection:{ authenticatorAttachment:'platform', userVerification:'required', residentKey:'required' },
+      timeout:60000,
+    }});
+    const credential_id = bufToB64u(cred.rawId);
+    let public_key = '';
+    try{ if(cred.response.getPublicKey) public_key = bufToB64u(cred.response.getPublicKey()); }catch(_e){}
+    const huella = {credential_id, empleado_id:e.id, public_key, counter:0};
+    DB.huellas.push(huella);
+    e.huella = true;
+    sbGuardarHuella(huella);
+    sbGuardarEmpleado(e);
+    kioscoSetStatus('ok', `Huella registrada para ${e.nombre}.`);
+    const i=$('#kk_cedula_h'); if(i) i.value='';
+  } catch(err){ kioscoSetStatus('err','No se pudo registrar la huella: '+err.message); }
+}
+async function kioscoMarcarHuella(){
+  if(!window.PublicKeyCredential){ kioscoSetStatus('err','Este navegador no soporta WebAuthn.'); return; }
+  try{
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const aser = await navigator.credentials.get({ publicKey:{ challenge, userVerification:'required', timeout:60000 } });
+    const credential_id = bufToB64u(aser.rawId);
+    const h = DB.huellas.find(x=>x.credential_id===credential_id);
+    if(!h){ kioscoSetStatus('err','Huella no registrada en este kiosco.'); return; }
+    const e = emp(h.empleado_id);
+    if(!e){ kioscoSetStatus('err','Colaborador no encontrado.'); return; }
+    kioscoRegistrarMarcacion(e, 'Huella');
+  } catch(err){ kioscoSetStatus('err','No se pudo leer la huella: '+err.message); }
 }
 
 /* =========================================================
@@ -1966,7 +2484,20 @@ if('serviceWorker' in navigator && (location.protocol==='https:' || location.hos
 /* =========================================================
    INICIO
    ========================================================= */
-renderApp();
+function irSegunHash(){
+  const h = location.hash.replace('#','');
+  if(h==='colaborador') mostrarPortal();
+  else if(h==='kiosco') mostrarKiosco();
+  else if(h==='admin') mostrarAdmin();
+  else mostrarSelector();
+}
+async function initApp(){
+  await cargarDesdeSupabase();
+  DB.payrollRuns.forEach(run=> run.detalles.forEach(d=>{ const e=emp(d.empId); if(e) calcularDetalle(d, e); }));
+  irSegunHash();
+}
+window.addEventListener('hashchange', irSegunHash);
+initApp();
 </script>
 </body>
 </html>
