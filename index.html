@@ -428,16 +428,17 @@ function attRowToApp(r){
   if(!marcas.length){ if(r.entrada) marcas.push({hora:r.entrada, tipo:'Entrada'}); if(r.salida) marcas.push({hora:r.salida, tipo:'Salida'}); }
   return { id:r.id, empId:r.empleado_id, fecha:r.fecha, entrada:r.entrada, salida:r.salida, estado:r.estado, metodo:r.metodo, marcas };
 }
-/* Todas las funciones sb* devuelven true/false para que quien las llame pueda
-   avisarle al usuario cuando el guardado en la base de datos falla, en vez de
-   fallar en silencio (solo quedaba un console.warn antes). */
+/* Todas las funciones sb* devuelven `true` si se guardó bien, o el mensaje de
+   error (string) si falló — así quien llama puede mostrarle al usuario el
+   motivo exacto (tabla que no existe, columna que falta, RLS que bloquea,
+   etc.) en vez de un genérico "falló el guardado" sin más detalle. */
 async function sbGuardarEmpleado(e){
-  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error){ console.warn('Supabase (empleados):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error){ console.warn('Supabase (empleados):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbActualizarEstadoEmpleado(id, estado){
-  try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error){ console.warn('Supabase (empleados):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error){ console.warn('Supabase (empleados):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbGuardarParametros(cfg){
   try{
@@ -456,8 +457,8 @@ async function sbGuardarParametros(cfg){
       delete row.horas_semanales_max;
       ({error} = await sb.from('parametros').upsert(row));
     }
-    if(error){ console.warn('Supabase (parametros):', error.message); return false; } return true;
-  } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+    if(error){ console.warn('Supabase (parametros):', error.message); return error.message; } return true;
+  } catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbRegistrarMarcacion(rec){
   try{
@@ -471,9 +472,9 @@ async function sbRegistrarMarcacion(rec){
       delete row.marcas;
       ({error} = await sb.from('asistencia').upsert(row));
     }
-    if(error){ console.warn('Supabase (asistencia):', error.message); return false; }
+    if(error){ console.warn('Supabase (asistencia):', error.message); return error.message; }
     return true;
-  } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  } catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbBorrarTodosLosEmpleados(){
   const {error} = await sb.from('empleados').delete().not('id','is', null);
@@ -508,17 +509,17 @@ function solAppToRow(l){
   return { id:l.id, empleado_id:l.empId, tipo:l.tipo, fecha_inicio:l.inicio, fecha_fin:l.fin, motivo:l.motivo, estado:l.estado };
 }
 async function sbGuardarSolicitud(l){
-  try{ const {error} = await sb.from('solicitudes').upsert(solAppToRow(l)); if(error){ console.warn('Supabase (solicitudes):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('solicitudes').upsert(solAppToRow(l)); if(error){ console.warn('Supabase (solicitudes):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbActualizarSolicitud(id, estado){
-  try{ const {error} = await sb.from('solicitudes').update({estado}).eq('id', id); if(error){ console.warn('Supabase (solicitudes):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('solicitudes').update({estado}).eq('id', id); if(error){ console.warn('Supabase (solicitudes):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Huellas (credenciales WebAuthn registradas desde el kiosco) */
 async function sbGuardarHuella(h){
-  try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error){ console.warn('Supabase (huellas):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error){ console.warn('Supabase (huellas):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Activos (inventario y asignación a colaboradores) */
 function assetRowToApp(r){
@@ -530,8 +531,8 @@ function assetAppToRow(a){
     estado:a.estado, asignado_a:a.asignadoA, fecha:a.fecha, valor:a.valor };
 }
 async function sbGuardarActivo(a){
-  try{ const {error} = await sb.from('activos').upsert(assetAppToRow(a)); if(error){ console.warn('Supabase (activos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('activos').upsert(assetAppToRow(a)); if(error){ console.warn('Supabase (activos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Reconocimientos (muro de reconocimientos entre colaboradores) */
 function recogRowToApp(r){
@@ -543,8 +544,8 @@ function recogAppToRow(r){
   return { id:r.id, categoria:r.categoria, color:r.color, de_id:r.de, para_id:r.para, mensaje:r.mensaje, fecha:r.fecha, likes:r.likes, comentarios: JSON.stringify(r.comentarios||[]) };
 }
 async function sbGuardarReconocimiento(r){
-  try{ const {error} = await sb.from('reconocimientos').upsert(recogAppToRow(r)); if(error){ console.warn('Supabase (reconocimientos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('reconocimientos').upsert(recogAppToRow(r)); if(error){ console.warn('Supabase (reconocimientos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Objetivos (organizacionales y personales) */
 function objRowToApp(r){
@@ -556,12 +557,12 @@ function objAppToRow(o){
     fecha_termino:o.fechaTermino, activo:o.activo, aprobado:o.aprobado, fecha_aprobacion:o.fechaAprobacion, creado_por:o.creadoPor };
 }
 async function sbGuardarObjetivo(o){
-  try{ const {error} = await sb.from('objetivos').upsert(objAppToRow(o)); if(error){ console.warn('Supabase (objetivos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('objetivos').upsert(objAppToRow(o)); if(error){ console.warn('Supabase (objetivos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbBorrarObjetivo(id){
-  try{ const {error} = await sb.from('objetivos').delete().eq('id', id); if(error){ console.warn('Supabase (objetivos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('objetivos').delete().eq('id', id); if(error){ console.warn('Supabase (objetivos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Documentos y firma electrónica */
 function docRowToApp(r){
@@ -571,8 +572,8 @@ function docAppToRow(d){
   return { id:d.id, empleado_id:d.empId, nombre:d.nombre, tipo:d.tipo, fecha:d.fecha, estado:d.estado, firmante:d.firmante, firma_fecha:d.firmaFecha };
 }
 async function sbGuardarDocumento(d){
-  try{ const {error} = await sb.from('documentos').upsert(docAppToRow(d)); if(error){ console.warn('Supabase (documentos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('documentos').upsert(docAppToRow(d)); if(error){ console.warn('Supabase (documentos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Canal de denuncias */
 function cplRowToApp(r){
@@ -586,8 +587,8 @@ function cplAppToRow(c){
     descripcion:c.descripcion, estado:c.estado, prioridad:c.prioridad, comentarios: JSON.stringify(c.comentarios||[]) };
 }
 async function sbGuardarDenuncia(c){
-  try{ const {error} = await sb.from('denuncias').upsert(cplAppToRow(c)); if(error){ console.warn('Supabase (denuncias):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('denuncias').upsert(cplAppToRow(c)); if(error){ console.warn('Supabase (denuncias):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Encuestas de clima */
 function svyRowToApp(r){
@@ -600,8 +601,8 @@ function svyAppToRow(s){
   return { id:s.id, titulo:s.titulo, descripcion:s.descripcion, estado:s.estado, creada:s.creada, preguntas: JSON.stringify(s.preguntas||[]), respuestas: JSON.stringify(s.respuestas||[]) };
 }
 async function sbGuardarEncuesta(s){
-  try{ const {error} = await sb.from('encuestas').upsert(svyAppToRow(s)); if(error){ console.warn('Supabase (encuestas):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('encuestas').upsert(svyAppToRow(s)); if(error){ console.warn('Supabase (encuestas):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Solicitudes de beneficios (canje de puntos) */
 function brRowToApp(r){
@@ -611,8 +612,8 @@ function brAppToRow(b){
   return { id:b.id, empleado_id:b.empId, beneficio_id:b.beneficioId, fecha:b.fecha, estado:b.estado };
 }
 async function sbGuardarSolicitudBeneficio(b){
-  try{ const {error} = await sb.from('beneficio_solicitudes').upsert(brAppToRow(b)); if(error){ console.warn('Supabase (beneficio_solicitudes):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('beneficio_solicitudes').upsert(brAppToRow(b)); if(error){ console.warn('Supabase (beneficio_solicitudes):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Adelantos de sueldo */
 function advRowToApp(r){
@@ -622,8 +623,8 @@ function advAppToRow(a){
   return { id:a.id, empleado_id:a.empId, fecha:a.fecha, monto:a.monto, estado:a.estado };
 }
 async function sbGuardarAdelanto(a){
-  try{ const {error} = await sb.from('adelantos').upsert(advAppToRow(a)); if(error){ console.warn('Supabase (adelantos):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('adelantos').upsert(advAppToRow(a)); if(error){ console.warn('Supabase (adelantos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Nómina (liquidaciones/"runs" con el detalle por colaborador en una columna JSON) */
 function runRowToApp(r){
@@ -635,8 +636,8 @@ function runAppToRow(run){
   return { id:run.id, periodo:run.periodo, fecha_pago:run.fechaPago, estado:run.estado, detalles: JSON.stringify(run.detalles||[]) };
 }
 async function sbGuardarNomina(run){
-  try{ const {error} = await sb.from('nomina_runs').upsert(runAppToRow(run)); if(error){ console.warn('Supabase (nomina_runs):', error.message); return false; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+  try{ const {error} = await sb.from('nomina_runs').upsert(runAppToRow(run)); if(error){ console.warn('Supabase (nomina_runs):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function cargarDesdeSupabase(){
   const tablasFaltantes = []; // se acumulan aquí las tablas que no se pudieron leer, para un solo aviso al final
@@ -848,7 +849,11 @@ function toast(msg){
   const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
   $('#toastRoot').appendChild(t);
   requestAnimationFrame(()=>t.classList.add('show'));
-  setTimeout(()=>{t.classList.remove('show'); setTimeout(()=>t.remove(),300);},2600);
+  /* Los mensajes de error ahora incluyen el detalle real de Supabase y son
+     más largos, así que el tiempo en pantalla escala con el largo del texto
+     (2.6s para un aviso corto, hasta 8s para uno con el detalle del error). */
+  const duracion = Math.min(8000, Math.max(2600, msg.length*55));
+  setTimeout(()=>{t.classList.remove('show'); setTimeout(()=>t.remove(),300);},duracion);
 }
 /* Animación de confirmación (check) para marcaciones NFC exitosas y para la
    asignación de un tag NFC. Se muestra un par de segundos y se retira sola. */
@@ -1314,9 +1319,9 @@ async function guardarEmpleado(id){
   let saved;
   if(id){ saved = Object.assign(emp(id), data); }
   else{ saved = {id:uid('emp'), huella:false, puntos:0, ...data}; DB.empleados.push(saved); }
-  const ok = await sbGuardarEmpleado(saved);
+  const res = await sbGuardarEmpleado(saved); const ok = res===true;
   if(ok){ toast(id? 'Colaborador actualizado y guardado' : 'Colaborador creado y guardado'); }
-  else{ toast('⚠️ El colaborador se guardó localmente, pero falló el guardado en la base de datos. Revisa la consola.'); }
+  else{ toast('⚠️ El colaborador se guardó localmente, pero falló el guardado en la base de datos: '+res); }
   if(!state.currentEmp) state.currentEmp = saved.id;
   if(!state.objEmp) state.objEmp = saved.id;
   closeModal(); renderApp();
@@ -1412,7 +1417,7 @@ function verPerfil(empId){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
   openModal('Perfil del colaborador', body, foot, true);
 }
-async function registrarHuella(empId){ const e=emp(empId); e.huella=true; const ok=await sbGuardarEmpleado(e); toast(ok? 'Huella registrada correctamente' : '⚠️ La huella se guardó localmente, pero falló el guardado en la base de datos.'); verPerfil(empId); }
+async function registrarHuella(empId){ const e=emp(empId); e.huella=true; const res = await sbGuardarEmpleado(e); const ok = res===true; toast(ok? 'Huella registrada correctamente' : '⚠️ La huella se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); verPerfil(empId); }
 function renovarContrato(empId){
   const e = emp(empId);
   DB.documents.push({id:uid('doc'), empId, nombre:'Otrosí — renovación de contrato', tipo:'Otrosí', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
@@ -1422,14 +1427,14 @@ async function terminarTrabajo(empId){
   const e = emp(empId);
   if(!confirm(`¿Confirmas terminar el vínculo laboral de ${e.nombre}?`)) return;
   e.estado='Inactivo';
-  const ok = await sbActualizarEstadoEmpleado(e.id,'Inactivo');
-  toast(ok? 'Colaborador marcado como inactivo' : '⚠️ Se marcó como inactivo localmente, pero falló el guardado en la base de datos.');
+  const res = await sbActualizarEstadoEmpleado(e.id,'Inactivo'); const ok = res===true;
+  toast(ok? 'Colaborador marcado como inactivo' : '⚠️ Se marcó como inactivo localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
   closeModal(); if(state.view==='empleados') renderApp();
 }
 async function reactivarTrabajo(empId){
   const e=emp(empId); e.estado='Activo';
-  const ok = await sbActualizarEstadoEmpleado(e.id,'Activo');
-  toast(ok? 'Colaborador reactivado' : '⚠️ Se reactivó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbActualizarEstadoEmpleado(e.id,'Activo'); const ok = res===true;
+  toast(ok? 'Colaborador reactivado' : '⚠️ Se reactivó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
   closeModal(); if(state.view==='empleados') renderApp();
 }
 function generarDocumentoDesdePerfil(empId){
@@ -1556,8 +1561,8 @@ async function actualizarLinea(runId, empId, campo, valor){
   $(`#dev-${runId}-${empId}`).textContent = fmtCOP(det.devengado);
   $(`#ded-${runId}-${empId}`).textContent = fmtCOP(det.deducciones);
   $(`#net-${runId}-${empId}`).innerHTML = `<strong>${fmtCOP(det.neto)}</strong>`;
-  const ok = await sbGuardarNomina(run);
-  if(!ok) toast('⚠️ Este cambio se guardó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarNomina(run); const ok = res===true;
+  if(!ok) toast('⚠️ Este cambio se guardó localmente, pero falló el guardado en la base de datos.'+' — '+res);
 }
 function abrirNuevaLiquidacion(){
   const body = `
@@ -1577,13 +1582,13 @@ async function crearLiquidacion(){
     run.detalles.push(det);
   });
   DB.payrollRuns.push(run); state.payrollOpenRun = run.id;
-  const ok = await sbGuardarNomina(run);
-  closeModal(); toast(ok? 'Liquidación generada' : '⚠️ La liquidación se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarNomina(run); const ok = res===true;
+  closeModal(); toast(ok? 'Liquidación generada' : '⚠️ La liquidación se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 async function cerrarLiquidacion(runId){
   const run = DB.payrollRuns.find(r=>r.id===runId); run.estado='Cerrada'; renderApp();
-  const ok = await sbGuardarNomina(run);
-  toast(ok? 'Nómina aprobada y cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarNomina(run); const ok = res===true;
+  toast(ok? 'Nómina aprobada y cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
 }
 
 function verLiquidacion(runId, empId){
@@ -1837,8 +1842,8 @@ async function guardarDocumento(){
   const nombre = $('#dc_nombre').value.trim(); if(!nombre){ toast('Escribe el nombre del documento'); return; }
   const nuevo = {id:uid('doc'), empId:$('#dc_emp').value, nombre, tipo:$('#dc_tipo').value, fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null};
   DB.documents.push(nuevo);
-  const ok = await sbGuardarDocumento(nuevo);
-  closeModal(); toast(ok? 'Documento cargado' : '⚠️ El documento se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarDocumento(nuevo); const ok = res===true;
+  closeModal(); toast(ok? 'Documento cargado' : '⚠️ El documento se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function abrirFirma(docId){
   const d = DB.documents.find(x=>x.id===docId);
@@ -1868,8 +1873,8 @@ async function confirmarFirma(docId){
   if(!sigHasStroke){ toast('Dibuja tu firma antes de confirmar'); return; }
   const d = DB.documents.find(x=>x.id===docId);
   d.estado='Firmado'; d.firmante=empNombre(d.empId); d.firmaFecha=DEMO_TODAY;
-  const ok = await sbGuardarDocumento(d);
-  closeModal(); toast(ok? 'Documento firmado electrónicamente' : '⚠️ La firma se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarDocumento(d); const ok = res===true;
+  closeModal(); toast(ok? 'Documento firmado electrónicamente' : '⚠️ La firma se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function verDocumentoFirmado(docId){
   const d = DB.documents.find(x=>x.id===docId);
@@ -1926,8 +1931,8 @@ async function enviarDenuncia(){
     anonimo:anon, nombre:anon?null:$('#dn_nombre').value.trim(), email:anon?null:$('#dn_email').value.trim(),
     descripcion:desc, estado:'Nuevo', prioridad:'Media', comentarios:[]};
   DB.complaints.push(nueva);
-  const ok = await sbGuardarDenuncia(nueva);
-  const avisoFalla = ok? '' : '<p style="margin-top:8px; color:var(--danger); font-size:12px;">⚠️ No se pudo guardar en la base de datos, quedó solo en este dispositivo.</p>';
+  const res = await sbGuardarDenuncia(nueva); const ok = res===true;
+  const avisoFalla = ok? '' : `<p style="margin-top:8px; color:var(--danger); font-size:12px;">⚠️ No se pudo guardar en la base de datos, quedó solo en este dispositivo. (${res})</p>`;
   openModal('Denuncia enviada', `<p>Tu reporte fue recibido con el folio <strong>${folio}</strong>.</p><p style="margin-top:8px; color:var(--muted); font-size:13px;">Guarda este número para hacer seguimiento. El equipo de Talento Humano lo revisará de forma confidencial.</p>${avisoFalla}`, `<button class="btn btn-primary" onclick="closeModal(); state.complaintTab='gestion'; renderApp();">Entendido</button>`);
 }
 function renderGestionDenuncias(){
@@ -1960,20 +1965,20 @@ function renderGestionDenuncias(){
 }
 async function cambiarEstadoDenuncia(id, v){
   const c = DB.complaints.find(c=>c.id===id); c.estado=v; renderApp();
-  const ok = await sbGuardarDenuncia(c);
-  toast(ok? 'Estado actualizado' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarDenuncia(c); const ok = res===true;
+  toast(ok? 'Estado actualizado' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
 }
 async function cambiarPrioridadDenuncia(id, v){
   const c = DB.complaints.find(c=>c.id===id); c.prioridad=v; renderApp();
-  const ok = await sbGuardarDenuncia(c);
-  toast(ok? 'Prioridad actualizada' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarDenuncia(c); const ok = res===true;
+  toast(ok? 'Prioridad actualizada' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
 }
 async function agregarComentarioDenuncia(id){
   const txt = $('#dn_comment').value.trim(); if(!txt) return;
   const c = DB.complaints.find(c=>c.id===id);
   c.comentarios.push({fecha:DEMO_TODAY, autor:'Daniela Fernández (RRHH)', texto:txt});
-  const ok = await sbGuardarDenuncia(c);
-  toast(ok? 'Nota agregada' : '⚠️ La nota se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarDenuncia(c); const ok = res===true;
+  toast(ok? 'Nota agregada' : '⚠️ La nota se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
@@ -2075,8 +2080,8 @@ async function guardarActivo(){
   const nombre = $('#as_nombre').value.trim(); if(!nombre){ toast('Escribe el nombre del activo'); return; }
   const nuevo = {id:uid('ast'), nombre, categoria:$('#as_cat').value, tipo:$('#as_tipo').value.trim()||'General', identificador:$('#as_id').value.trim()||'—', estado:'Disponible', asignadoA:null, fecha:null, valor:Number($('#as_valor').value)||0};
   DB.assets.push(nuevo);
-  const ok = await sbGuardarActivo(nuevo);
-  closeModal(); toast(ok? 'Activo agregado al inventario' : '⚠️ El activo se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarActivo(nuevo); const ok = res===true;
+  closeModal(); toast(ok? 'Activo agregado al inventario' : '⚠️ El activo se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function asignarActivo(id){
   const activos = DB.empleados.filter(e=>e.estado==='Activo');
@@ -2086,13 +2091,13 @@ function asignarActivo(id){
 }
 async function confirmarAsignacion(id){
   const a = DB.assets.find(x=>x.id===id); a.estado='Asignado'; a.asignadoA=$('#ax_emp').value; a.fecha=DEMO_TODAY;
-  const ok = await sbGuardarActivo(a);
-  closeModal(); toast(ok? 'Activo asignado' : '⚠️ Se asignó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarActivo(a); const ok = res===true;
+  closeModal(); toast(ok? 'Activo asignado' : '⚠️ Se asignó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 async function liberarActivo(id){
   const a=DB.assets.find(x=>x.id===id); a.estado='Disponible'; a.asignadoA=null; a.fecha=null;
-  const ok = await sbGuardarActivo(a);
-  toast(ok? 'Activo liberado' : '⚠️ Se liberó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarActivo(a); const ok = res===true;
+  toast(ok? 'Activo liberado' : '⚠️ Se liberó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
@@ -2182,13 +2187,13 @@ async function crearEncuesta(){
   if(!t.preguntas.length){ toast('Agrega al menos una pregunta'); return; }
   const nueva = {id:uid('svy'), titulo:t.titulo.trim(), descripcion:t.descripcion.trim(), estado:'Activa', creada:DEMO_TODAY, preguntas:t.preguntas, respuestas:[]};
   DB.surveys.push(nueva);
-  const ok = await sbGuardarEncuesta(nueva);
-  state.surveyTemp=null; closeModal(); toast(ok? 'Encuesta creada' : '⚠️ La encuesta se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarEncuesta(nueva); const ok = res===true;
+  state.surveyTemp=null; closeModal(); toast(ok? 'Encuesta creada' : '⚠️ La encuesta se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 async function cerrarEncuesta(id){
   const s = DB.surveys.find(s=>s.id===id); s.estado='Cerrada'; renderApp();
-  const ok = await sbGuardarEncuesta(s);
-  toast(ok? 'Encuesta cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarEncuesta(s); const ok = res===true;
+  toast(ok? 'Encuesta cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res));
 }
 const CLIMA_OPCIONES = [['Siempre','😊'],['Casi siempre','🙂'],['A veces','😐'],['Casi nunca','🙁'],['Nunca','☹️']];
 function renderModalResponder(surveyId){
@@ -2220,8 +2225,8 @@ async function enviarRespuesta(surveyId){
     else valores[p.id] = $('#rq_'+p.id).value;
   });
   s.respuestas.push({empId:$('#rs_emp').value, fecha:DEMO_TODAY, valores});
-  const ok = await sbGuardarEncuesta(s);
-  closeModal(); toast(ok? 'Respuesta registrada' : '⚠️ La respuesta se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarEncuesta(s); const ok = res===true;
+  closeModal(); toast(ok? 'Respuesta registrada' : '⚠️ La respuesta se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function verResultadosEncuesta(surveyId){
   const s = DB.surveys.find(x=>x.id===surveyId);
@@ -2285,14 +2290,14 @@ function renderObjetivos(){
 }
 async function actualizarAvanceObjetivo(id, v){
   const o = DB.objectives.find(x=>x.id===id); o.avance = Math.max(0,Math.min(100,Number(v)||0)); renderApp();
-  const ok = await sbGuardarObjetivo(o);
-  if(!ok) toast('⚠️ El avance se guardó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarObjetivo(o); const ok = res===true;
+  if(!ok) toast('⚠️ El avance se guardó localmente, pero falló el guardado en la base de datos.'+' — '+res);
 }
 async function eliminarObjetivo(id){
   const i = DB.objectives.findIndex(x=>x.id===id); if(i<0) return;
   DB.objectives.splice(i,1);
-  const ok = await sbBorrarObjetivo(id);
-  toast(ok? 'Objetivo eliminado' : '⚠️ Se eliminó localmente, pero falló el borrado en la base de datos.'); renderApp();
+  const res = await sbBorrarObjetivo(id); const ok = res===true;
+  toast(ok? 'Objetivo eliminado' : '⚠️ Se eliminó localmente, pero falló el borrado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function abrirObjetivo(){
   const body = `
@@ -2309,8 +2314,8 @@ async function guardarObjetivo(){
   const nuevo = {id:uid('obj'), empId:state.objEmp, tipo:$('#ob_tipo').value, descripcion, meta:$('#ob_meta').value.trim()||'—',
     peso:Number($('#ob_peso').value)||0, avance:0, fechaTermino:$('#ob_fecha').value, activo:true, aprobado:false, fechaAprobacion:null, creadoPor:'Daniela Fernández Ospina'};
   DB.objectives.push(nuevo);
-  const ok = await sbGuardarObjetivo(nuevo);
-  closeModal(); toast(ok? 'Objetivo creado' : '⚠️ El objetivo se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarObjetivo(nuevo); const ok = res===true;
+  closeModal(); toast(ok? 'Objetivo creado' : '⚠️ El objetivo se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
@@ -2350,8 +2355,8 @@ function renderReconocimientos(){
 }
 async function likeReconocimiento(id){
   const r = DB.recognitions.find(r=>r.id===id); r.likes++; renderApp();
-  const ok = await sbGuardarReconocimiento(r);
-  if(!ok) toast('⚠️ El like se guardó localmente, pero falló el guardado en la base de datos.');
+  const res = await sbGuardarReconocimiento(r); const ok = res===true;
+  if(!ok) toast('⚠️ El like se guardó localmente, pero falló el guardado en la base de datos.'+' — '+res);
 }
 function comentarReconocimiento(id){
   const body = `<div class="field"><label>Tu comentario</label><textarea id="rc_texto" placeholder="Escribe un comentario…"></textarea></div>`;
@@ -2362,8 +2367,8 @@ async function guardarComentarioReconocimiento(id){
   const txt = $('#rc_texto').value.trim(); if(!txt) return;
   const r = DB.recognitions.find(r=>r.id===id);
   r.comentarios.push({de:state.currentEmp, texto:txt});
-  const ok = await sbGuardarReconocimiento(r);
-  closeModal(); toast(ok? 'Comentario agregado' : '⚠️ El comentario se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarReconocimiento(r); const ok = res===true;
+  closeModal(); toast(ok? 'Comentario agregado' : '⚠️ El comentario se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 function abrirReconocer(){
   const activos = DB.empleados.filter(e=>e.estado==='Activo');
@@ -2379,8 +2384,8 @@ async function enviarReconocimiento(){
   const cat = $('#rg_cat').value; const color = RECOG_TIPOS.find(t=>t[0]===cat)[1];
   const nuevo = {id:uid('rec'), categoria:cat, color, de:state.currentEmp, para:$('#rg_para').value, mensaje:msg, fecha:DEMO_TODAY, likes:0, comentarios:[]};
   DB.recognitions.push(nuevo);
-  const ok = await sbGuardarReconocimiento(nuevo);
-  closeModal(); toast(ok? 'Reconocimiento publicado' : '⚠️ El reconocimiento se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarReconocimiento(nuevo); const ok = res===true;
+  closeModal(); toast(ok? 'Reconocimiento publicado' : '⚠️ El reconocimiento se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
@@ -2418,8 +2423,8 @@ async function solicitarBeneficio(benId){
   if(you.puntos < b.puntos){ toast('No tienes puntos suficientes para este beneficio'); return; }
   const nueva = {id:uid('br'), empId:you.id, beneficioId:benId, fecha:DEMO_TODAY, estado:'Pendiente'};
   DB.benefitRequests.push(nueva);
-  const ok = await sbGuardarSolicitudBeneficio(nueva);
-  toast(ok? 'Solicitud enviada, queda pendiente de aprobación' : '⚠️ La solicitud se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarSolicitudBeneficio(nueva); const ok = res===true;
+  toast(ok? 'Solicitud enviada, queda pendiente de aprobación' : '⚠️ La solicitud se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
@@ -2462,8 +2467,8 @@ async function solicitarAdelanto(empId){
   if(monto>disponible){ toast('El monto supera lo disponible para retirar'); return; }
   const nuevo = {id:uid('adv'), empId, fecha:DEMO_TODAY, monto, estado:'Pagado'};
   DB.advances.push(nuevo);
-  const ok = await sbGuardarAdelanto(nuevo);
-  toast(ok? 'Adelanto pagado correctamente' : '⚠️ El adelanto se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
+  const res = await sbGuardarAdelanto(nuevo); const ok = res===true;
+  toast(ok? 'Adelanto pagado correctamente' : '⚠️ El adelanto se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); renderApp();
 }
 
 /* =========================================================
