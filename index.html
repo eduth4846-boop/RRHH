@@ -478,6 +478,25 @@ async function sbRegistrarMarcacion(rec){
 async function sbBorrarTodosLosEmpleados(){
   const {error} = await sb.from('empleados').delete().not('id','is', null);
   if(error) throw error;
+  /* Sin esto, todo lo que dependía de esos colaboradores se queda en Supabase
+     apuntando a un empleado_id que ya no existe: asistencia, solicitudes de
+     vacaciones/permisos, huellas del kiosco, objetivos, documentos firmados,
+     reconocimientos, solicitudes de beneficios y adelantos. Al recargar, esos
+     registros "fantasma" vuelven a aparecer y pueden romper el render de esas
+     pestañas. Los activos NO se borran (son propiedad de la empresa): solo se
+     liberan (quedan "Disponible", sin asignar). Se usa allSettled para que si
+     alguna tabla todavía no existe en tu proyecto, el resto sí se limpie. */
+  await Promise.allSettled([
+    sb.from('asistencia').delete().not('id','is', null),
+    sb.from('solicitudes').delete().not('id','is', null),
+    sb.from('huellas').delete().not('credential_id','is', null),
+    sb.from('objetivos').delete().not('id','is', null),
+    sb.from('documentos').delete().not('id','is', null),
+    sb.from('reconocimientos').delete().not('id','is', null),
+    sb.from('beneficio_solicitudes').delete().not('id','is', null),
+    sb.from('adelantos').delete().not('id','is', null),
+    sb.from('activos').update({estado:'Disponible', asignado_a:null, fecha:null}).not('asignado_a','is', null),
+  ]);
 }
 /* Solicitudes (permisos y vacaciones) — usadas tanto por el admin
    (DB.leaveRequests) como por el portal del colaborador. */
@@ -501,11 +520,138 @@ async function sbGuardarHuella(h){
   try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error){ console.warn('Supabase (huellas):', error.message); return false; } return true; }
   catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
+/* Activos (inventario y asignación a colaboradores) */
+function assetRowToApp(r){
+  return { id:r.id, nombre:r.nombre, categoria:r.categoria, tipo:r.tipo, identificador:r.identificador,
+    estado:r.estado, asignadoA:r.asignado_a||null, fecha:r.fecha||null, valor:Number(r.valor)||0 };
+}
+function assetAppToRow(a){
+  return { id:a.id, nombre:a.nombre, categoria:a.categoria, tipo:a.tipo, identificador:a.identificador,
+    estado:a.estado, asignado_a:a.asignadoA, fecha:a.fecha, valor:a.valor };
+}
+async function sbGuardarActivo(a){
+  try{ const {error} = await sb.from('activos').upsert(assetAppToRow(a)); if(error){ console.warn('Supabase (activos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Reconocimientos (muro de reconocimientos entre colaboradores) */
+function recogRowToApp(r){
+  let comentarios = [];
+  try{ comentarios = r.comentarios? (typeof r.comentarios==='string'? JSON.parse(r.comentarios) : r.comentarios) : []; }catch(_e){ comentarios = []; }
+  return { id:r.id, categoria:r.categoria, color:r.color, de:r.de_id, para:r.para_id, mensaje:r.mensaje, fecha:r.fecha, likes:r.likes||0, comentarios };
+}
+function recogAppToRow(r){
+  return { id:r.id, categoria:r.categoria, color:r.color, de_id:r.de, para_id:r.para, mensaje:r.mensaje, fecha:r.fecha, likes:r.likes, comentarios: JSON.stringify(r.comentarios||[]) };
+}
+async function sbGuardarReconocimiento(r){
+  try{ const {error} = await sb.from('reconocimientos').upsert(recogAppToRow(r)); if(error){ console.warn('Supabase (reconocimientos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Objetivos (organizacionales y personales) */
+function objRowToApp(r){
+  return { id:r.id, empId:r.empleado_id, tipo:r.tipo, descripcion:r.descripcion, meta:r.meta, peso:Number(r.peso)||0, avance:Number(r.avance)||0,
+    fechaTermino:r.fecha_termino, activo:!!r.activo, aprobado:!!r.aprobado, fechaAprobacion:r.fecha_aprobacion||null, creadoPor:r.creado_por||'' };
+}
+function objAppToRow(o){
+  return { id:o.id, empleado_id:o.empId, tipo:o.tipo, descripcion:o.descripcion, meta:o.meta, peso:o.peso, avance:o.avance,
+    fecha_termino:o.fechaTermino, activo:o.activo, aprobado:o.aprobado, fecha_aprobacion:o.fechaAprobacion, creado_por:o.creadoPor };
+}
+async function sbGuardarObjetivo(o){
+  try{ const {error} = await sb.from('objetivos').upsert(objAppToRow(o)); if(error){ console.warn('Supabase (objetivos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+async function sbBorrarObjetivo(id){
+  try{ const {error} = await sb.from('objetivos').delete().eq('id', id); if(error){ console.warn('Supabase (objetivos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Documentos y firma electrónica */
+function docRowToApp(r){
+  return { id:r.id, empId:r.empleado_id, nombre:r.nombre, tipo:r.tipo, fecha:r.fecha, estado:r.estado, firmante:r.firmante||null, firmaFecha:r.firma_fecha||null };
+}
+function docAppToRow(d){
+  return { id:d.id, empleado_id:d.empId, nombre:d.nombre, tipo:d.tipo, fecha:d.fecha, estado:d.estado, firmante:d.firmante, firma_fecha:d.firmaFecha };
+}
+async function sbGuardarDocumento(d){
+  try{ const {error} = await sb.from('documentos').upsert(docAppToRow(d)); if(error){ console.warn('Supabase (documentos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Canal de denuncias */
+function cplRowToApp(r){
+  let comentarios = [];
+  try{ comentarios = r.comentarios? (typeof r.comentarios==='string'? JSON.parse(r.comentarios) : r.comentarios) : []; }catch(_e){ comentarios = []; }
+  return { id:r.id, folio:r.folio, fecha:r.fecha, categoria:r.categoria, relacion:r.relacion, anonimo:!!r.anonimo, nombre:r.nombre||null, email:r.email||null,
+    descripcion:r.descripcion, estado:r.estado, prioridad:r.prioridad, comentarios };
+}
+function cplAppToRow(c){
+  return { id:c.id, folio:c.folio, fecha:c.fecha, categoria:c.categoria, relacion:c.relacion, anonimo:c.anonimo, nombre:c.nombre, email:c.email,
+    descripcion:c.descripcion, estado:c.estado, prioridad:c.prioridad, comentarios: JSON.stringify(c.comentarios||[]) };
+}
+async function sbGuardarDenuncia(c){
+  try{ const {error} = await sb.from('denuncias').upsert(cplAppToRow(c)); if(error){ console.warn('Supabase (denuncias):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Encuestas de clima */
+function svyRowToApp(r){
+  let preguntas=[], respuestas=[];
+  try{ preguntas = r.preguntas? (typeof r.preguntas==='string'? JSON.parse(r.preguntas) : r.preguntas) : []; }catch(_e){ preguntas=[]; }
+  try{ respuestas = r.respuestas? (typeof r.respuestas==='string'? JSON.parse(r.respuestas) : r.respuestas) : []; }catch(_e){ respuestas=[]; }
+  return { id:r.id, titulo:r.titulo, descripcion:r.descripcion||'', estado:r.estado, creada:r.creada, preguntas, respuestas };
+}
+function svyAppToRow(s){
+  return { id:s.id, titulo:s.titulo, descripcion:s.descripcion, estado:s.estado, creada:s.creada, preguntas: JSON.stringify(s.preguntas||[]), respuestas: JSON.stringify(s.respuestas||[]) };
+}
+async function sbGuardarEncuesta(s){
+  try{ const {error} = await sb.from('encuestas').upsert(svyAppToRow(s)); if(error){ console.warn('Supabase (encuestas):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Solicitudes de beneficios (canje de puntos) */
+function brRowToApp(r){
+  return { id:r.id, empId:r.empleado_id, beneficioId:r.beneficio_id, fecha:r.fecha, estado:r.estado };
+}
+function brAppToRow(b){
+  return { id:b.id, empleado_id:b.empId, beneficio_id:b.beneficioId, fecha:b.fecha, estado:b.estado };
+}
+async function sbGuardarSolicitudBeneficio(b){
+  try{ const {error} = await sb.from('beneficio_solicitudes').upsert(brAppToRow(b)); if(error){ console.warn('Supabase (beneficio_solicitudes):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Adelantos de sueldo */
+function advRowToApp(r){
+  return { id:r.id, empId:r.empleado_id, fecha:r.fecha, monto:Number(r.monto)||0, estado:r.estado };
+}
+function advAppToRow(a){
+  return { id:a.id, empleado_id:a.empId, fecha:a.fecha, monto:a.monto, estado:a.estado };
+}
+async function sbGuardarAdelanto(a){
+  try{ const {error} = await sb.from('adelantos').upsert(advAppToRow(a)); if(error){ console.warn('Supabase (adelantos):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
+/* Nómina (liquidaciones/"runs" con el detalle por colaborador en una columna JSON) */
+function runRowToApp(r){
+  let detalles=[];
+  try{ detalles = r.detalles? (typeof r.detalles==='string'? JSON.parse(r.detalles) : r.detalles) : []; }catch(_e){ detalles=[]; }
+  return { id:r.id, periodo:r.periodo, fechaPago:r.fecha_pago, estado:r.estado, detalles };
+}
+function runAppToRow(run){
+  return { id:run.id, periodo:run.periodo, fecha_pago:run.fechaPago, estado:run.estado, detalles: JSON.stringify(run.detalles||[]) };
+}
+async function sbGuardarNomina(run){
+  try{ const {error} = await sb.from('nomina_runs').upsert(runAppToRow(run)); if(error){ console.warn('Supabase (nomina_runs):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
+}
 async function cargarDesdeSupabase(){
+  const tablasFaltantes = []; // se acumulan aquí las tablas que no se pudieron leer, para un solo aviso al final
   try{
-    const [{data:emps, error:e1}, {data:atts, error:e2}, {data:par, error:e3}, {data:sols, error:e4}, {data:huellasData, error:e5}] = await Promise.all([
+    const [
+      {data:emps, error:e1}, {data:atts, error:e2}, {data:par, error:e3}, {data:sols, error:e4},
+      {data:huellasData, error:e5}, {data:activosData, error:e6}, {data:recogData, error:e7},
+      {data:objData, error:e8}, {data:docData, error:e9}, {data:cplData, error:e10},
+      {data:svyData, error:e11}, {data:brData, error:e12}, {data:advData, error:e13}, {data:runData, error:e14},
+    ] = await Promise.all([
       sb.from('empleados').select('*'), sb.from('asistencia').select('*'), sb.from('parametros').select('*').eq('id',1).maybeSingle(),
-      sb.from('solicitudes').select('*'), sb.from('huellas').select('*'),
+      sb.from('solicitudes').select('*'), sb.from('huellas').select('*'), sb.from('activos').select('*'),
+      sb.from('reconocimientos').select('*'), sb.from('objetivos').select('*'), sb.from('documentos').select('*'),
+      sb.from('denuncias').select('*'), sb.from('encuestas').select('*'), sb.from('beneficio_solicitudes').select('*'),
+      sb.from('adelantos').select('*'), sb.from('nomina_runs').select('*'),
     ]);
     if(!e1 && emps){ DB.empleados = emps.map(empRowToApp); }
     else if(e1){ console.warn('Supabase (empleados):', e1.message); toast('⚠️ No se pudieron cargar los colaboradores desde la base de datos: '+e1.message); }
@@ -515,6 +661,24 @@ async function cargarDesdeSupabase(){
     else if(e4){ console.warn('Supabase (solicitudes):', e4.message); }
     if(!e5 && huellasData){ DB.huellas = huellasData; }
     else if(e5){ console.warn('Supabase (huellas):', e5.message); }
+    if(!e6 && activosData){ DB.assets = activosData.map(assetRowToApp); }
+    else if(e6){ console.warn('Supabase (activos):', e6.message); toast('⚠️ No se pudo cargar el inventario de activos desde la base de datos: '+e6.message); }
+    if(!e7 && recogData){ DB.recognitions = recogData.map(recogRowToApp); }
+    else if(e7){ console.warn('Supabase (reconocimientos):', e7.message); tablasFaltantes.push('reconocimientos'); }
+    if(!e8 && objData){ DB.objectives = objData.map(objRowToApp); }
+    else if(e8){ console.warn('Supabase (objetivos):', e8.message); tablasFaltantes.push('objetivos'); }
+    if(!e9 && docData){ DB.documents = docData.map(docRowToApp); }
+    else if(e9){ console.warn('Supabase (documentos):', e9.message); tablasFaltantes.push('documentos'); }
+    if(!e10 && cplData){ DB.complaints = cplData.map(cplRowToApp); }
+    else if(e10){ console.warn('Supabase (denuncias):', e10.message); tablasFaltantes.push('denuncias'); }
+    if(!e11 && svyData){ DB.surveys = svyData.map(svyRowToApp); }
+    else if(e11){ console.warn('Supabase (encuestas):', e11.message); tablasFaltantes.push('encuestas'); }
+    if(!e12 && brData){ DB.benefitRequests = brData.map(brRowToApp); }
+    else if(e12){ console.warn('Supabase (beneficio_solicitudes):', e12.message); tablasFaltantes.push('beneficio_solicitudes'); }
+    if(!e13 && advData){ DB.advances = advData.map(advRowToApp); }
+    else if(e13){ console.warn('Supabase (adelantos):', e13.message); tablasFaltantes.push('adelantos'); }
+    if(!e14 && runData){ DB.payrollRuns = runData.map(runRowToApp); }
+    else if(e14){ console.warn('Supabase (nomina_runs):', e14.message); tablasFaltantes.push('nomina_runs'); }
     if(!e3 && par){
       Object.assign(CFG, { smmlv:Number(par.smmlv)||CFG.smmlv, auxTransporte:Number(par.aux_transporte)||0,
         saludPct:Number(par.salud_pct)||0, pensionPct:Number(par.pension_pct)||0, horasMes:Number(par.horas_mes)||230,
@@ -528,6 +692,14 @@ async function cargarDesdeSupabase(){
         horasSemanalesMax:Number(par.horas_semanales_max)||CFG.horasSemanalesMax,
         companyName: par.company_name||CFG.companyName, companyNit: par.company_nit||CFG.companyNit });
     } else if(e3){ console.warn('Supabase (parametros):', e3.message); }
+    if(tablasFaltantes.length){
+      /* Estas tablas todavía no existen en tu proyecto de Supabase (o el anon key
+         no tiene permiso sobre ellas). Mientras no las crees, lo que se registre
+         en esas pestañas se ve bien en pantalla pero se pierde al recargar.
+         Revisa la consola del navegador para el detalle de cada tabla y crea el
+         esquema SQL correspondiente en Supabase. */
+      toast('⚠️ Estas tablas no existen aún en Supabase, así que no se guardan entre sesiones: '+tablasFaltantes.join(', '));
+    }
   } catch(err){
     console.warn('No se pudo conectar a Supabase:', err.message);
     toast('⚠️ No se pudo conectar a la base de datos: '+err.message);
@@ -654,6 +826,11 @@ const TITLES = {
 function $(sel,ctx=document){return ctx.querySelector(sel);}
 function $all(sel,ctx=document){return [...ctx.querySelectorAll(sel)];}
 function emp(id){return DB.empleados.find(e=>e.id===id);}
+/* Nombre "seguro" de un colaborador: si el id ya no existe (por ejemplo, un
+   activo, documento, objetivo o reconocimiento que sigue apuntando a alguien
+   que fue eliminado — un "dato fantasma"), evita que se rompa el render de
+   toda la pestaña y en su lugar muestra un texto claro. */
+function empNombre(id){ const e=emp(id); return e? e.nombre : '(colaborador eliminado)'; }
 function iniciales(nombre){return nombre.split(' ').filter(Boolean).slice(0,2).map(p=>p[0]).join('').toUpperCase();}
 function apellidosDe(nombre){const p=nombre.split(' ').filter(Boolean); return p.slice(-2).join(' ');}
 function nombresDe(nombre){const p=nombre.split(' ').filter(Boolean); return p.slice(0,Math.max(1,p.length-2)).join(' ');}
@@ -828,10 +1005,10 @@ function renderDropdown(which){
   if(!which){ root.innerHTML=''; return; }
   if(which==='notif'){
     const items = [
-      ...DB.leaveRequests.filter(l=>l.estado==='Pendiente').map(l=>({t:`Permiso pendiente — ${emp(l.empId).nombre}`, s:`${l.tipo} · ${fmtDate(l.inicio)}`, go:'asistencia'})),
-      ...DB.documents.filter(d=>d.estado==='Pendiente').map(d=>({t:`Documento sin firmar — ${d.nombre}`, s:emp(d.empId).nombre, go:'documentos'})),
+      ...DB.leaveRequests.filter(l=>l.estado==='Pendiente').map(l=>({t:`Permiso pendiente — ${empNombre(l.empId)}`, s:`${l.tipo} · ${fmtDate(l.inicio)}`, go:'asistencia'})),
+      ...DB.documents.filter(d=>d.estado==='Pendiente').map(d=>({t:`Documento sin firmar — ${d.nombre}`, s:empNombre(d.empId), go:'documentos'})),
       ...DB.complaints.filter(c=>c.estado==='Nuevo').map(c=>({t:`Nueva denuncia ${c.folio}`, s:c.categoria, go:'denuncias'})),
-      ...DB.benefitRequests.filter(b=>b.estado==='Pendiente').map(b=>({t:`Solicitud de beneficio — ${emp(b.empId).nombre}`, s:DB.benefits.find(x=>x.id===b.beneficioId).nombre, go:'beneficios'})),
+      ...DB.benefitRequests.filter(b=>b.estado==='Pendiente').map(b=>({t:`Solicitud de beneficio — ${empNombre(b.empId)}`, s:DB.benefits.find(x=>x.id===b.beneficioId).nombre, go:'beneficios'})),
     ];
     root.innerHTML = `<div class="dropdown-panel"><div class="dp-head">Notificaciones</div><div class="dp-body">
       ${items.length? items.map(it=>`<div class="dp-item" onclick="navigate('${it.go}')"><div class="t">${it.t}</div><div class="s">${it.s}</div></div>`).join('') : '<div class="dp-item"><div class="s">No tienes notificaciones pendientes.</div></div>'}
@@ -1146,7 +1323,7 @@ async function guardarEmpleado(id){
 }
 function abrirBorrarTodosEmpleados(){
   const body = `
-    <p style="font-size:13px; margin-bottom:12px;">Esta acción borrará <strong>todos</strong> los colaboradores y su asistencia asociada, tanto en esta pantalla como en la base de datos de Supabase. No se puede deshacer.</p>
+    <p style="font-size:13px; margin-bottom:12px;">Esta acción borrará <strong>todos</strong> los colaboradores junto con su asistencia, solicitudes de vacaciones/permisos, huellas, objetivos, documentos firmados, reconocimientos, solicitudes de beneficios y adelantos — tanto en esta pantalla como en la base de datos de Supabase. Los activos de inventario no se borran, solo quedan liberados (sin asignar). No se puede deshacer.</p>
     <div class="field"><label>Escribe la contraseña para confirmar</label><input type="password" id="bt_pass" placeholder="••••" maxlength="4" autocomplete="off"></div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-danger" onclick="confirmarBorrarTodosEmpleados()">Borrar todo</button>`;
   openModal('Borrar todos los registros de colaboradores', body, foot);
@@ -1157,7 +1334,13 @@ async function confirmarBorrarTodosEmpleados(){
   if(pass !== '0000'){ toast('Contraseña incorrecta'); return; }
   try{
     await sbBorrarTodosLosEmpleados();
-    DB.empleados = []; DB.attendance = [];
+    /* Limpia en memoria todo lo que dependía de los colaboradores eliminados,
+       para que no queden referencias "fantasma" (empId apuntando a nadie)
+       en ninguna pestaña de esta misma sesión. */
+    DB.empleados = []; DB.attendance = []; DB.leaveRequests = []; DB.huellas = [];
+    DB.objectives = []; DB.documents = []; DB.recognitions = [];
+    DB.benefitRequests = []; DB.advances = [];
+    DB.assets.forEach(a=>{ a.estado='Disponible'; a.asignadoA=null; a.fecha=null; });
     DB.payrollRuns.forEach(r=> r.detalles = []);
     state.currentEmp = null; state.objEmp = null;
     closeModal(); toast('Todos los registros de colaboradores fueron eliminados'); renderApp();
@@ -1305,6 +1488,13 @@ function runActivo(){ return DB.payrollRuns.find(r=>r.id===state.payrollOpenRun)
 
 function renderNomina(){
   const run = runActivo();
+  if(!run){
+    return `
+    <div class="section-title"><h1 style="font-size:0;"></h1>
+      <button class="btn btn-primary" onclick="abrirNuevaLiquidacion()">+ Nueva liquidación</button>
+    </div>
+    ${emptyState('Sin liquidaciones de nómina','Genera la primera liquidación para empezar a calcular la nómina de tus colaboradores.')}`;
+  }
   const cerrada = run.estado==='Cerrada';
   const totDev = run.detalles.reduce((s,d)=>s+d.devengado,0);
   const totDed = run.detalles.reduce((s,d)=>s+d.deducciones,0);
@@ -1318,7 +1508,7 @@ function renderNomina(){
       ${cerrada? '<span class="pill pill-green">Cerrada y pagada</span>' : '<span class="pill pill-amber">Borrador</span>'}
     </div>
     <div style="display:flex; gap:10px;">
-      <button class="btn btn-ghost" onclick="exportCSV('nomina_${run.periodo.replace(/[^a-z0-9]/gi,'_')}.csv', ['Colaborador','Días','H.Extra Diurna','H.Extra Nocturna','H.Festiva Diurna','H.Festiva Nocturna','Bonificaciones','Otros devengos','Otras deducciones','Devengado','Deducciones','Neto a pagar'], run.detalles.map(d=>[emp(d.empId).nombre,d.dias,d.hed,d.hen,d.hefd,d.hefn,d.bonif,d.otros,d.otrasDed,d.devengado,d.deducciones,d.neto]))">⬇ Exportar CSV</button>
+      <button class="btn btn-ghost" onclick="exportCSV('nomina_${run.periodo.replace(/[^a-z0-9]/gi,'_')}.csv', ['Colaborador','Días','H.Extra Diurna','H.Extra Nocturna','H.Festiva Diurna','H.Festiva Nocturna','Bonificaciones','Otros devengos','Otras deducciones','Devengado','Deducciones','Neto a pagar'], run.detalles.map(d=>[empNombre(d.empId),d.dias,d.hed,d.hen,d.hefd,d.hefn,d.bonif,d.otros,d.otrasDed,d.devengado,d.deducciones,d.neto]))">⬇ Exportar CSV</button>
       <button class="btn btn-ghost" onclick="abrirNuevaLiquidacion()">+ Nueva liquidación</button>
       ${!cerrada? `<button class="btn btn-teal" onclick="cerrarLiquidacion('${run.id}')">Aprobar y cerrar</button>` : ''}
     </div>
@@ -1358,7 +1548,7 @@ function renderNomina(){
   </table></div>
   <p style="margin-top:10px; font-size:12px; color:var(--muted);">Cálculo basado en los parámetros legales configurables: auxilio de transporte hasta 2 SMMLV, aportes de salud y pensión, y recargos de horas extra. Ajusta estos valores en <a style="color:var(--primary-2); cursor:pointer;" onclick="navigate('parametros')">Parámetros legales</a> cada vez que cambie la normativa vigente.</p>`;
 }
-function actualizarLinea(runId, empId, campo, valor){
+async function actualizarLinea(runId, empId, campo, valor){
   const run = DB.payrollRuns.find(r=>r.id===runId);
   const det = run.detalles.find(d=>d.empId===empId);
   det[campo] = Number(valor)||0;
@@ -1366,6 +1556,8 @@ function actualizarLinea(runId, empId, campo, valor){
   $(`#dev-${runId}-${empId}`).textContent = fmtCOP(det.devengado);
   $(`#ded-${runId}-${empId}`).textContent = fmtCOP(det.deducciones);
   $(`#net-${runId}-${empId}`).innerHTML = `<strong>${fmtCOP(det.neto)}</strong>`;
+  const ok = await sbGuardarNomina(run);
+  if(!ok) toast('⚠️ Este cambio se guardó localmente, pero falló el guardado en la base de datos.');
 }
 function abrirNuevaLiquidacion(){
   const body = `
@@ -1375,7 +1567,7 @@ function abrirNuevaLiquidacion(){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="crearLiquidacion()">Generar</button>`;
   openModal('Nueva liquidación de nómina', body, foot);
 }
-function crearLiquidacion(){
+async function crearLiquidacion(){
   const periodo = $('#np_periodo').value.trim() || 'Nuevo periodo';
   const fechaPago = $('#np_fecha').value;
   const run = {id:uid('run'), periodo, fechaPago, estado:'Borrador', detalles:[]};
@@ -1385,9 +1577,14 @@ function crearLiquidacion(){
     run.detalles.push(det);
   });
   DB.payrollRuns.push(run); state.payrollOpenRun = run.id;
-  closeModal(); toast('Liquidación generada'); renderApp();
+  const ok = await sbGuardarNomina(run);
+  closeModal(); toast(ok? 'Liquidación generada' : '⚠️ La liquidación se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
-function cerrarLiquidacion(runId){ DB.payrollRuns.find(r=>r.id===runId).estado='Cerrada'; toast('Nómina aprobada y cerrada'); renderApp(); }
+async function cerrarLiquidacion(runId){
+  const run = DB.payrollRuns.find(r=>r.id===runId); run.estado='Cerrada'; renderApp();
+  const ok = await sbGuardarNomina(run);
+  toast(ok? 'Nómina aprobada y cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.');
+}
 
 function verLiquidacion(runId, empId){
   const run = DB.payrollRuns.find(r=>r.id===runId);
@@ -1479,7 +1676,7 @@ function descargarLiquidacion(runId, empId){
    4. ASISTENCIA
    ========================================================= */
 function renderAsistencia(){
-  const marcHoy = DB.attendance.filter(a=>a.fecha===DEMO_TODAY).sort((a,b)=>emp(a.empId).nombre.localeCompare(emp(b.empId).nombre));
+  const marcHoy = DB.attendance.filter(a=>a.fecha===DEMO_TODAY).sort((a,b)=>empNombre(a.empId).localeCompare(empNombre(b.empId)));
   const fueraHoy = DB.leaveRequests.filter(l=>l.estado==='Aprobado' && l.inicio<=DEMO_TODAY && l.fin>=DEMO_TODAY);
   const pendientes = DB.leaveRequests.filter(l=>l.estado==='Pendiente');
   const limiteSemanal = CFG.horasSemanalesMax||42;
@@ -1602,7 +1799,7 @@ function resolverPermiso(id, estado){
     openModal('', `<div style="text-align:center; padding:10px 0;">
         <div style="width:64px; height:64px; border-radius:50%; background:var(--success); color:#fff; display:flex; align-items:center; justify-content:center; font-size:30px; margin:0 auto 14px;">✓</div>
         <h3 style="font-size:19px; margin-bottom:8px;">¡Vacaciones aprobadas!</h3>
-        <p style="color:var(--muted); font-size:13px;">${emp(l.empId).nombre} descansará del ${fmtDate(l.inicio)} al ${fmtDate(l.fin)}. ¡Descansa y disfruta, nos vemos pronto!</p>
+        <p style="color:var(--muted); font-size:13px;">${empNombre(l.empId)} descansará del ${fmtDate(l.inicio)} al ${fmtDate(l.fin)}. ¡Descansa y disfruta, nos vemos pronto!</p>
       </div>`, `<button class="btn btn-primary" style="width:100%; justify-content:center;" onclick="closeModal(); renderApp();">Entendido</button>`);
   } else { toast(estado==='Aprobado'? 'Solicitud aprobada':'Solicitud rechazada'); renderApp(); }
 }
@@ -1612,7 +1809,7 @@ function resolverPermiso(id, estado){
    ========================================================= */
 function renderDocumentos(){
   const q = state.docSearch.toLowerCase();
-  const rows = DB.documents.filter(d=> d.nombre.toLowerCase().includes(q) || emp(d.empId).nombre.toLowerCase().includes(q));
+  const rows = DB.documents.filter(d=> d.nombre.toLowerCase().includes(q) || empNombre(d.empId).toLowerCase().includes(q));
   return `
   <div class="section-title">
     <div class="field" style="margin:0; width:300px;"><input placeholder="Buscar documento o colaborador…" value="${state.docSearch}" oninput="state.docSearch=this.value; renderApp();"></div>
@@ -1636,15 +1833,17 @@ function abrirDocumento(){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarDocumento()">Cargar documento</button>`;
   openModal('Cargar documento', body, foot);
 }
-function guardarDocumento(){
+async function guardarDocumento(){
   const nombre = $('#dc_nombre').value.trim(); if(!nombre){ toast('Escribe el nombre del documento'); return; }
-  DB.documents.push({id:uid('doc'), empId:$('#dc_emp').value, nombre, tipo:$('#dc_tipo').value, fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
-  closeModal(); toast('Documento cargado'); renderApp();
+  const nuevo = {id:uid('doc'), empId:$('#dc_emp').value, nombre, tipo:$('#dc_tipo').value, fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null};
+  DB.documents.push(nuevo);
+  const ok = await sbGuardarDocumento(nuevo);
+  closeModal(); toast(ok? 'Documento cargado' : '⚠️ El documento se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 function abrirFirma(docId){
-  const d = DB.documents.find(x=>x.id===docId); const e = emp(d.empId);
+  const d = DB.documents.find(x=>x.id===docId);
   const body = `
-    <p style="font-size:13px; margin-bottom:10px;"><strong>${d.nombre}</strong> · ${e.nombre}</p>
+    <p style="font-size:13px; margin-bottom:10px;"><strong>${d.nombre}</strong> · ${empNombre(d.empId)}</p>
     <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:6px;">Firma con el mouse o el dedo en el recuadro</label>
     <canvas id="sigCanvas" class="sigpad" width="500" height="160" style="width:100%; max-width:500px;"></canvas>
     <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" onclick="limpiarFirma()">Limpiar</button></div>`;
@@ -1665,11 +1864,12 @@ function initSigPad(){
   c.ontouchstart=start; c.ontouchmove=move; c.ontouchend=end;
 }
 function limpiarFirma(){ const c=$('#sigCanvas'); sigCtx.clearRect(0,0,c.width,c.height); sigHasStroke=false; }
-function confirmarFirma(docId){
+async function confirmarFirma(docId){
   if(!sigHasStroke){ toast('Dibuja tu firma antes de confirmar'); return; }
-  const d = DB.documents.find(x=>x.id===docId); const e = emp(d.empId);
-  d.estado='Firmado'; d.firmante=e.nombre; d.firmaFecha=DEMO_TODAY;
-  closeModal(); toast('Documento firmado electrónicamente'); renderApp();
+  const d = DB.documents.find(x=>x.id===docId);
+  d.estado='Firmado'; d.firmante=empNombre(d.empId); d.firmaFecha=DEMO_TODAY;
+  const ok = await sbGuardarDocumento(d);
+  closeModal(); toast(ok? 'Documento firmado electrónicamente' : '⚠️ La firma se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 function verDocumentoFirmado(docId){
   const d = DB.documents.find(x=>x.id===docId);
@@ -1718,14 +1918,17 @@ function renderNuevaDenuncia(){
     <button class="btn btn-primary" onclick="enviarDenuncia()">Enviar denuncia</button>
   </div>`;
 }
-function enviarDenuncia(){
+async function enviarDenuncia(){
   const desc = $('#dn_desc').value.trim(); if(!desc){ toast('Describe los hechos antes de enviar'); return; }
   const anon = $('#dn_anon').checked;
   const folio = 'DEN-2026-'+String(DB.seq.cpl).padStart(4,'0'); DB.seq.cpl++;
-  DB.complaints.push({id:uid('cpl'), folio, fecha:DEMO_TODAY, categoria:$('#dn_categoria').value, relacion:$('#dn_relacion').value,
+  const nueva = {id:uid('cpl'), folio, fecha:DEMO_TODAY, categoria:$('#dn_categoria').value, relacion:$('#dn_relacion').value,
     anonimo:anon, nombre:anon?null:$('#dn_nombre').value.trim(), email:anon?null:$('#dn_email').value.trim(),
-    descripcion:desc, estado:'Nuevo', prioridad:'Media', comentarios:[]});
-  openModal('Denuncia enviada', `<p>Tu reporte fue recibido con el folio <strong>${folio}</strong>.</p><p style="margin-top:8px; color:var(--muted); font-size:13px;">Guarda este número para hacer seguimiento. El equipo de Talento Humano lo revisará de forma confidencial.</p>`, `<button class="btn btn-primary" onclick="closeModal(); state.complaintTab='gestion'; renderApp();">Entendido</button>`);
+    descripcion:desc, estado:'Nuevo', prioridad:'Media', comentarios:[]};
+  DB.complaints.push(nueva);
+  const ok = await sbGuardarDenuncia(nueva);
+  const avisoFalla = ok? '' : '<p style="margin-top:8px; color:var(--danger); font-size:12px;">⚠️ No se pudo guardar en la base de datos, quedó solo en este dispositivo.</p>';
+  openModal('Denuncia enviada', `<p>Tu reporte fue recibido con el folio <strong>${folio}</strong>.</p><p style="margin-top:8px; color:var(--muted); font-size:13px;">Guarda este número para hacer seguimiento. El equipo de Talento Humano lo revisará de forma confidencial.</p>${avisoFalla}`, `<button class="btn btn-primary" onclick="closeModal(); state.complaintTab='gestion'; renderApp();">Entendido</button>`);
 }
 function renderGestionDenuncias(){
   const sel = state.complaintSel && DB.complaints.find(c=>c.id===state.complaintSel);
@@ -1755,12 +1958,22 @@ function renderGestionDenuncias(){
     </div>
   </div>`;
 }
-function cambiarEstadoDenuncia(id, v){ DB.complaints.find(c=>c.id===id).estado=v; toast('Estado actualizado'); renderApp(); }
-function cambiarPrioridadDenuncia(id, v){ DB.complaints.find(c=>c.id===id).prioridad=v; toast('Prioridad actualizada'); renderApp(); }
-function agregarComentarioDenuncia(id){
+async function cambiarEstadoDenuncia(id, v){
+  const c = DB.complaints.find(c=>c.id===id); c.estado=v; renderApp();
+  const ok = await sbGuardarDenuncia(c);
+  toast(ok? 'Estado actualizado' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.');
+}
+async function cambiarPrioridadDenuncia(id, v){
+  const c = DB.complaints.find(c=>c.id===id); c.prioridad=v; renderApp();
+  const ok = await sbGuardarDenuncia(c);
+  toast(ok? 'Prioridad actualizada' : '⚠️ Se actualizó localmente, pero falló el guardado en la base de datos.');
+}
+async function agregarComentarioDenuncia(id){
   const txt = $('#dn_comment').value.trim(); if(!txt) return;
-  DB.complaints.find(c=>c.id===id).comentarios.push({fecha:DEMO_TODAY, autor:'Daniela Fernández (RRHH)', texto:txt});
-  toast('Nota agregada'); renderApp();
+  const c = DB.complaints.find(c=>c.id===id);
+  c.comentarios.push({fecha:DEMO_TODAY, autor:'Daniela Fernández (RRHH)', texto:txt});
+  const ok = await sbGuardarDenuncia(c);
+  toast(ok? 'Nota agregada' : '⚠️ La nota se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 
 /* =========================================================
@@ -1836,7 +2049,7 @@ function renderActivos(){
     ${rows.map(a=>`<tr>
       <td>${a.nombre}</td><td>${a.categoria}</td><td>${a.tipo}</td><td>${a.identificador}</td><td class="num-cell">${fmtCOP(a.valor)}</td>
       <td>${pillActivo(a.estado)}</td>
-      <td>${a.asignadoA? emp(a.asignadoA).nombre : '—'}</td>
+      <td>${a.asignadoA? empNombre(a.asignadoA) : '—'}</td>
       <td>${a.estado==='Asignado'? `<button class="btn btn-ghost btn-sm" onclick="liberarActivo('${a.id}')">Liberar</button>` : `<button class="btn btn-ghost btn-sm" onclick="asignarActivo('${a.id}')">Asignar</button>`}</td>
     </tr>`).join('')}
     ${!rows.length? `<tr><td colspan="8">${emptyState('Sin activos','Ningún activo coincide con el filtro seleccionado.')}</td></tr>`:''}
@@ -1858,10 +2071,12 @@ function abrirActivo(){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarActivo()">Guardar</button>`;
   openModal('Nuevo activo', body, foot);
 }
-function guardarActivo(){
+async function guardarActivo(){
   const nombre = $('#as_nombre').value.trim(); if(!nombre){ toast('Escribe el nombre del activo'); return; }
-  DB.assets.push({id:uid('ast'), nombre, categoria:$('#as_cat').value, tipo:$('#as_tipo').value.trim()||'General', identificador:$('#as_id').value.trim()||'—', estado:'Disponible', asignadoA:null, fecha:null, valor:Number($('#as_valor').value)||0});
-  closeModal(); toast('Activo agregado al inventario'); renderApp();
+  const nuevo = {id:uid('ast'), nombre, categoria:$('#as_cat').value, tipo:$('#as_tipo').value.trim()||'General', identificador:$('#as_id').value.trim()||'—', estado:'Disponible', asignadoA:null, fecha:null, valor:Number($('#as_valor').value)||0};
+  DB.assets.push(nuevo);
+  const ok = await sbGuardarActivo(nuevo);
+  closeModal(); toast(ok? 'Activo agregado al inventario' : '⚠️ El activo se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 function asignarActivo(id){
   const activos = DB.empleados.filter(e=>e.estado==='Activo');
@@ -1869,11 +2084,16 @@ function asignarActivo(id){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="confirmarAsignacion('${id}')">Asignar</button>`;
   openModal('Asignar activo', body, foot);
 }
-function confirmarAsignacion(id){
+async function confirmarAsignacion(id){
   const a = DB.assets.find(x=>x.id===id); a.estado='Asignado'; a.asignadoA=$('#ax_emp').value; a.fecha=DEMO_TODAY;
-  closeModal(); toast('Activo asignado'); renderApp();
+  const ok = await sbGuardarActivo(a);
+  closeModal(); toast(ok? 'Activo asignado' : '⚠️ Se asignó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
-function liberarActivo(id){ const a=DB.assets.find(x=>x.id===id); a.estado='Disponible'; a.asignadoA=null; a.fecha=null; toast('Activo liberado'); renderApp(); }
+async function liberarActivo(id){
+  const a=DB.assets.find(x=>x.id===id); a.estado='Disponible'; a.asignadoA=null; a.fecha=null;
+  const ok = await sbGuardarActivo(a);
+  toast(ok? 'Activo liberado' : '⚠️ Se liberó localmente, pero falló el guardado en la base de datos.'); renderApp();
+}
 
 /* =========================================================
    9. ENCUESTAS (gestión + autoservicio + clima)
@@ -1956,14 +2176,20 @@ function agregarPreguntaTemp(){
   renderModalNuevaEncuesta();
 }
 function eliminarPreguntaTemp(i){ state.surveyTemp.preguntas.splice(i,1); renderModalNuevaEncuesta(); }
-function crearEncuesta(){
+async function crearEncuesta(){
   const t = state.surveyTemp;
   if(!t.titulo.trim()){ toast('Escribe un título para la encuesta'); return; }
   if(!t.preguntas.length){ toast('Agrega al menos una pregunta'); return; }
-  DB.surveys.push({id:uid('svy'), titulo:t.titulo.trim(), descripcion:t.descripcion.trim(), estado:'Activa', creada:DEMO_TODAY, preguntas:t.preguntas, respuestas:[]});
-  state.surveyTemp=null; closeModal(); toast('Encuesta creada'); renderApp();
+  const nueva = {id:uid('svy'), titulo:t.titulo.trim(), descripcion:t.descripcion.trim(), estado:'Activa', creada:DEMO_TODAY, preguntas:t.preguntas, respuestas:[]};
+  DB.surveys.push(nueva);
+  const ok = await sbGuardarEncuesta(nueva);
+  state.surveyTemp=null; closeModal(); toast(ok? 'Encuesta creada' : '⚠️ La encuesta se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
-function cerrarEncuesta(id){ DB.surveys.find(s=>s.id===id).estado='Cerrada'; toast('Encuesta cerrada'); renderApp(); }
+async function cerrarEncuesta(id){
+  const s = DB.surveys.find(s=>s.id===id); s.estado='Cerrada'; renderApp();
+  const ok = await sbGuardarEncuesta(s);
+  toast(ok? 'Encuesta cerrada' : '⚠️ Se cerró localmente, pero falló el guardado en la base de datos.');
+}
 const CLIMA_OPCIONES = [['Siempre','😊'],['Casi siempre','🙂'],['A veces','😐'],['Casi nunca','🙁'],['Nunca','☹️']];
 function renderModalResponder(surveyId){
   const s = DB.surveys.find(x=>x.id===surveyId);
@@ -1986,7 +2212,7 @@ function renderInputPregunta(p){
   if(p.tipo==='opcion') return `<select id="rq_${p.id}">${p.opciones.map(o=>`<option>${o}</option>`).join('')}</select>`;
   return `<textarea id="rq_${p.id}" placeholder="Escribe tu respuesta…"></textarea>`;
 }
-function enviarRespuesta(surveyId){
+async function enviarRespuesta(surveyId){
   const s = DB.surveys.find(x=>x.id===surveyId);
   const valores = {};
   s.preguntas.forEach(p=>{
@@ -1994,7 +2220,8 @@ function enviarRespuesta(surveyId){
     else valores[p.id] = $('#rq_'+p.id).value;
   });
   s.respuestas.push({empId:$('#rs_emp').value, fecha:DEMO_TODAY, valores});
-  closeModal(); toast('Respuesta registrada'); renderApp();
+  const ok = await sbGuardarEncuesta(s);
+  closeModal(); toast(ok? 'Respuesta registrada' : '⚠️ La respuesta se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 function verResultadosEncuesta(surveyId){
   const s = DB.surveys.find(x=>x.id===surveyId);
@@ -2056,12 +2283,16 @@ function renderObjetivos(){
     ${tablaObjetivos(pers)}
   </div>`;
 }
-function actualizarAvanceObjetivo(id, v){
+async function actualizarAvanceObjetivo(id, v){
   const o = DB.objectives.find(x=>x.id===id); o.avance = Math.max(0,Math.min(100,Number(v)||0)); renderApp();
+  const ok = await sbGuardarObjetivo(o);
+  if(!ok) toast('⚠️ El avance se guardó localmente, pero falló el guardado en la base de datos.');
 }
-function eliminarObjetivo(id){
-  const i = DB.objectives.findIndex(x=>x.id===id); if(i>-1) DB.objectives.splice(i,1);
-  toast('Objetivo eliminado'); renderApp();
+async function eliminarObjetivo(id){
+  const i = DB.objectives.findIndex(x=>x.id===id); if(i<0) return;
+  DB.objectives.splice(i,1);
+  const ok = await sbBorrarObjetivo(id);
+  toast(ok? 'Objetivo eliminado' : '⚠️ Se eliminó localmente, pero falló el borrado en la base de datos.'); renderApp();
 }
 function abrirObjetivo(){
   const body = `
@@ -2073,11 +2304,13 @@ function abrirObjetivo(){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarObjetivo()">Guardar</button>`;
   openModal('Nuevo objetivo', body, foot);
 }
-function guardarObjetivo(){
+async function guardarObjetivo(){
   const descripcion = $('#ob_desc').value.trim(); if(!descripcion){ toast('Describe el objetivo'); return; }
-  DB.objectives.push({id:uid('obj'), empId:state.objEmp, tipo:$('#ob_tipo').value, descripcion, meta:$('#ob_meta').value.trim()||'—',
-    peso:Number($('#ob_peso').value)||0, avance:0, fechaTermino:$('#ob_fecha').value, activo:true, aprobado:false, fechaAprobacion:null, creadoPor:'Daniela Fernández Ospina'});
-  closeModal(); toast('Objetivo creado'); renderApp();
+  const nuevo = {id:uid('obj'), empId:state.objEmp, tipo:$('#ob_tipo').value, descripcion, meta:$('#ob_meta').value.trim()||'—',
+    peso:Number($('#ob_peso').value)||0, avance:0, fechaTermino:$('#ob_fecha').value, activo:true, aprobado:false, fechaAprobacion:null, creadoPor:'Daniela Fernández Ospina'};
+  DB.objectives.push(nuevo);
+  const ok = await sbGuardarObjetivo(nuevo);
+  closeModal(); toast(ok? 'Objetivo creado' : '⚠️ El objetivo se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 
 /* =========================================================
@@ -2086,7 +2319,7 @@ function guardarObjetivo(){
 const RECOG_TIPOS = [['Innovación','info'],['Trabajo en equipo','green'],['Vamos más lejos','amber'],['Compromiso','blue']];
 function renderReconocimientos(){
   const mesActual = DB.recognitions.filter(r=>r.fecha.slice(0,7)==='2026-09');
-  const subareas = new Set(mesActual.map(r=>emp(r.para).area)).size;
+  const subareas = new Set(mesActual.map(r=>{ const e=emp(r.para); return e? e.area : null; }).filter(Boolean)).size;
   const filtro = state.recogFiltro;
   const list = (filtro==='Todas'? DB.recognitions : DB.recognitions.filter(r=>r.categoria===filtro)).slice().reverse();
   const colorMap = {info:'linear-gradient(135deg,#0EA5E9,#0369A1)', green:'linear-gradient(135deg,#16A34A,#166534)', amber:'linear-gradient(135deg,#F5A623,#C97F0A)', blue:'linear-gradient(135deg,#2F56B0,#1E3A75)'};
@@ -2103,10 +2336,10 @@ function renderReconocimientos(){
     ${list.map(r=>`<div class="recog-card">
       <div class="recog-head" style="background:${colorMap[r.color]};">${r.categoria}</div>
       <div class="recog-body">
-        <div class="recog-title">¡Buen trabajo ${emp(r.para).nombre.split(' ')[0]}!</div>
+        <div class="recog-title">¡Buen trabajo ${empNombre(r.para).split(' ')[0]}!</div>
         <div class="recog-msg">${r.mensaje}</div>
-        ${r.comentarios.map(c=>`<div class="recog-msg">${emp(c.de).nombre.split(' ')[0]}: ${c.texto}</div>`).join('')}
-        <div style="font-size:11px; color:var(--muted); margin-top:6px;">De ${emp(r.de).nombre} · ${fmtDate(r.fecha)}</div>
+        ${r.comentarios.map(c=>`<div class="recog-msg">${empNombre(c.de).split(' ')[0]}: ${c.texto}</div>`).join('')}
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">De ${empNombre(r.de)} · ${fmtDate(r.fecha)}</div>
       </div>
       <div class="recog-foot">
         <span onclick="likeReconocimiento('${r.id}')">👍 ${r.likes}</span>
@@ -2115,16 +2348,22 @@ function renderReconocimientos(){
     </div>`).join('') || `<div style="grid-column:1/-1;">${emptyState('Sin reconocimientos','Aún no hay reconocimientos en esta categoría.')}</div>`}
   </div>`;
 }
-function likeReconocimiento(id){ DB.recognitions.find(r=>r.id===id).likes++; renderApp(); }
+async function likeReconocimiento(id){
+  const r = DB.recognitions.find(r=>r.id===id); r.likes++; renderApp();
+  const ok = await sbGuardarReconocimiento(r);
+  if(!ok) toast('⚠️ El like se guardó localmente, pero falló el guardado en la base de datos.');
+}
 function comentarReconocimiento(id){
   const body = `<div class="field"><label>Tu comentario</label><textarea id="rc_texto" placeholder="Escribe un comentario…"></textarea></div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarComentarioReconocimiento('${id}')">Comentar</button>`;
   openModal('Añadir comentario', body, foot);
 }
-function guardarComentarioReconocimiento(id){
+async function guardarComentarioReconocimiento(id){
   const txt = $('#rc_texto').value.trim(); if(!txt) return;
-  DB.recognitions.find(r=>r.id===id).comentarios.push({de:state.currentEmp, texto:txt});
-  closeModal(); toast('Comentario agregado'); renderApp();
+  const r = DB.recognitions.find(r=>r.id===id);
+  r.comentarios.push({de:state.currentEmp, texto:txt});
+  const ok = await sbGuardarReconocimiento(r);
+  closeModal(); toast(ok? 'Comentario agregado' : '⚠️ El comentario se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 function abrirReconocer(){
   const activos = DB.empleados.filter(e=>e.estado==='Activo');
@@ -2135,11 +2374,13 @@ function abrirReconocer(){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="enviarReconocimiento()">Reconocer</button>`;
   openModal('Nuevo reconocimiento', body, foot);
 }
-function enviarReconocimiento(){
+async function enviarReconocimiento(){
   const msg = $('#rg_msg').value.trim(); if(!msg){ toast('Escribe un mensaje'); return; }
   const cat = $('#rg_cat').value; const color = RECOG_TIPOS.find(t=>t[0]===cat)[1];
-  DB.recognitions.push({id:uid('rec'), categoria:cat, color, de:state.currentEmp, para:$('#rg_para').value, mensaje:msg, fecha:DEMO_TODAY, likes:0, comentarios:[]});
-  closeModal(); toast('Reconocimiento publicado'); renderApp();
+  const nuevo = {id:uid('rec'), categoria:cat, color, de:state.currentEmp, para:$('#rg_para').value, mensaje:msg, fecha:DEMO_TODAY, likes:0, comentarios:[]};
+  DB.recognitions.push(nuevo);
+  const ok = await sbGuardarReconocimiento(nuevo);
+  closeModal(); toast(ok? 'Reconocimiento publicado' : '⚠️ El reconocimiento se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 
 /* =========================================================
@@ -2172,11 +2413,13 @@ function renderBeneficios(){
     ${!misSolicitudes.length? `<tr><td colspan="3">${emptyState('Sin solicitudes','Aún no has solicitado beneficios.')}</td></tr>`:''}
   </tbody></table></div>`;
 }
-function solicitarBeneficio(benId){
+async function solicitarBeneficio(benId){
   const you = emp(state.currentEmp); const b = DB.benefits.find(x=>x.id===benId);
   if(you.puntos < b.puntos){ toast('No tienes puntos suficientes para este beneficio'); return; }
-  DB.benefitRequests.push({id:uid('br'), empId:you.id, beneficioId:benId, fecha:DEMO_TODAY, estado:'Pendiente'});
-  toast('Solicitud enviada, queda pendiente de aprobación'); renderApp();
+  const nueva = {id:uid('br'), empId:you.id, beneficioId:benId, fecha:DEMO_TODAY, estado:'Pendiente'};
+  DB.benefitRequests.push(nueva);
+  const ok = await sbGuardarSolicitudBeneficio(nueva);
+  toast(ok? 'Solicitud enviada, queda pendiente de aprobación' : '⚠️ La solicitud se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 
 /* =========================================================
@@ -2212,13 +2455,15 @@ function renderAdelantos(){
     </tbody></table></div>
   </div>`;
 }
-function solicitarAdelanto(empId){
+async function solicitarAdelanto(empId){
   const monto = Number($('#ad_monto').value)||0;
   const disponible = disponibleAdelanto(empId);
   if(monto<=0){ toast('Ingresa un monto válido'); return; }
   if(monto>disponible){ toast('El monto supera lo disponible para retirar'); return; }
-  DB.advances.push({id:uid('adv'), empId, fecha:DEMO_TODAY, monto, estado:'Pagado'});
-  toast('Adelanto pagado correctamente'); renderApp();
+  const nuevo = {id:uid('adv'), empId, fecha:DEMO_TODAY, monto, estado:'Pagado'};
+  DB.advances.push(nuevo);
+  const ok = await sbGuardarAdelanto(nuevo);
+  toast(ok? 'Adelanto pagado correctamente' : '⚠️ El adelanto se guardó localmente, pero falló el guardado en la base de datos.'); renderApp();
 }
 
 /* =========================================================
@@ -2246,15 +2491,15 @@ function renderReportes(){
 function eliminarReporte(id){ const i=DB.reports.findIndex(r=>r.id===id); if(i>-1) DB.reports.splice(i,1); renderApp(); }
 function generarPlantilla(tipo){
   let headers=[], rows=[];
-  if(tipo==='Nómina'){ const run=runActivo(); headers=['Colaborador','Cédula','Días','Devengado','Deducciones','Neto']; rows=run.detalles.map(d=>[emp(d.empId).nombre, emp(d.empId).cedula, d.dias, d.devengado, d.deducciones, d.neto]); }
+  if(tipo==='Nómina'){ const run=runActivo(); if(run){ headers=['Colaborador','Cédula','Días','Devengado','Deducciones','Neto']; rows=run.detalles.map(d=>[empNombre(d.empId), (emp(d.empId)||{}).cedula||'', d.dias, d.devengado, d.deducciones, d.neto]); } }
   else if(tipo==='Colaboradores'){ headers=['Nombre','Cédula','Cargo','Área','Contrato','Salario','Estado']; rows=DB.empleados.map(e=>[e.nombre,e.cedula,e.cargo,e.area,e.contrato,e.salario,e.estado]); }
-  else if(tipo==='Asistencia'){ headers=['Colaborador','Fecha','Entrada','Salida','Estado']; rows=DB.attendance.map(a=>[emp(a.empId).nombre,a.fecha,a.entrada||'',a.salida||'',a.estado]); }
-  else if(tipo==='Vacaciones'){ headers=['Colaborador','Tipo','Inicio','Fin','Días','Estado']; rows=DB.leaveRequests.map(l=>[emp(l.empId).nombre,l.tipo,l.inicio,l.fin,l.dias,l.estado]); }
-  else if(tipo==='Firma de documentos'){ headers=['Documento','Colaborador','Tipo','Estado','Fecha firma']; rows=DB.documents.map(d=>[d.nombre,emp(d.empId).nombre,d.tipo,d.estado,d.firmaFecha||'']); }
-  else if(tipo==='Beneficios'){ headers=['Colaborador','Beneficio','Fecha','Estado']; rows=DB.benefitRequests.map(b=>[emp(b.empId).nombre,DB.benefits.find(x=>x.id===b.beneficioId).nombre,b.fecha,b.estado]); }
-  else if(tipo==='Reconocimientos'){ headers=['De','Para','Categoría','Fecha','Likes']; rows=DB.recognitions.map(r=>[emp(r.de).nombre,emp(r.para).nombre,r.categoria,r.fecha,r.likes]); }
-  else if(tipo==='Objetivos'){ headers=['Colaborador','Tipo','Descripción','Peso','Avance','Fecha término']; rows=DB.objectives.map(o=>[emp(o.empId).nombre,o.tipo,o.descripcion,o.peso,o.avance,o.fechaTermino]); }
-  else if(tipo==='Activos'){ headers=['Activo','Categoría','Tipo','Estado','Asignado a','Valor']; rows=DB.assets.map(a=>[a.nombre,a.categoria,a.tipo,a.estado,a.asignadoA?emp(a.asignadoA).nombre:'',a.valor]); }
+  else if(tipo==='Asistencia'){ headers=['Colaborador','Fecha','Entrada','Salida','Estado']; rows=DB.attendance.map(a=>[empNombre(a.empId),a.fecha,a.entrada||'',a.salida||'',a.estado]); }
+  else if(tipo==='Vacaciones'){ headers=['Colaborador','Tipo','Inicio','Fin','Días','Estado']; rows=DB.leaveRequests.map(l=>[empNombre(l.empId),l.tipo,l.inicio,l.fin,l.dias,l.estado]); }
+  else if(tipo==='Firma de documentos'){ headers=['Documento','Colaborador','Tipo','Estado','Fecha firma']; rows=DB.documents.map(d=>[d.nombre,empNombre(d.empId),d.tipo,d.estado,d.firmaFecha||'']); }
+  else if(tipo==='Beneficios'){ headers=['Colaborador','Beneficio','Fecha','Estado']; rows=DB.benefitRequests.map(b=>[empNombre(b.empId),DB.benefits.find(x=>x.id===b.beneficioId).nombre,b.fecha,b.estado]); }
+  else if(tipo==='Reconocimientos'){ headers=['De','Para','Categoría','Fecha','Likes']; rows=DB.recognitions.map(r=>[empNombre(r.de),empNombre(r.para),r.categoria,r.fecha,r.likes]); }
+  else if(tipo==='Objetivos'){ headers=['Colaborador','Tipo','Descripción','Peso','Avance','Fecha término']; rows=DB.objectives.map(o=>[empNombre(o.empId),o.tipo,o.descripcion,o.peso,o.avance,o.fechaTermino]); }
+  else if(tipo==='Activos'){ headers=['Activo','Categoría','Tipo','Estado','Asignado a','Valor']; rows=DB.assets.map(a=>[a.nombre,a.categoria,a.tipo,a.estado,a.asignadoA?empNombre(a.asignadoA):'',a.valor]); }
   else if(tipo==='Encuestas'){ headers=['Encuesta','Estado','Preguntas','Respuestas']; rows=DB.surveys.map(s=>[s.titulo,s.estado,s.preguntas.length,s.respuestas.length]); }
   else if(tipo==='Denuncias'){ headers=['Folio','Categoría','Origen','Prioridad','Estado']; rows=DB.complaints.map(c=>[c.folio,c.categoria,c.anonimo?'Anónimo':c.relacion,c.prioridad,c.estado]); }
   const filename = tipo.toLowerCase().replace(/\s+/g,'_')+'_'+DEMO_TODAY+'.csv';
