@@ -409,14 +409,18 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
    conectados a la misma base de datos en Supabase. */
 
 function empRowToApp(r){
+  let horarioPropio = null;
+  try{ horarioPropio = r.horario_propio? (typeof r.horario_propio==='string'? JSON.parse(r.horario_propio) : r.horario_propio) : null; }catch(_e){ horarioPropio = null; }
   return { id:r.id, nombre:r.nombre, cedula:r.cedula, cargo:r.cargo, area:r.area,
     contrato:r.contrato, ingreso:r.ingreso, salario:Number(r.salario)||0, estado:r.estado,
-    email:r.email||'', tel:r.tel||'', supervisor:r.supervisor||'', huella:!!r.huella, puntos:r.puntos||0 };
+    email:r.email||'', tel:r.tel||'', supervisor:r.supervisor||'', huella:!!r.huella, puntos:r.puntos||0,
+    turnoId:r.turno_id||null, horarioPropio };
 }
 function empAppToRow(e){
   return { id:e.id, nombre:e.nombre, cedula:e.cedula, cargo:e.cargo, area:e.area,
     contrato:e.contrato, ingreso:e.ingreso, salario:e.salario, estado:e.estado,
-    email:e.email, tel:e.tel, supervisor:e.supervisor, huella:e.huella, puntos:e.puntos };
+    email:e.email, tel:e.tel, supervisor:e.supervisor, huella:e.huella, puntos:e.puntos,
+    turno_id:e.turnoId||null, horario_propio: e.horarioPropio? JSON.stringify(e.horarioPropio) : null };
 }
 function attRowToApp(r){
   /* "marcas" guarda TODOS los ingresos/salidas del día (permite más de un
@@ -433,8 +437,19 @@ function attRowToApp(r){
    motivo exacto (tabla que no existe, columna que falta, RLS que bloquea,
    etc.) en vez de un genérico "falló el guardado" sin más detalle. */
 async function sbGuardarEmpleado(e){
-  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error){ console.warn('Supabase (empleados):', error.message); return error.message; } return true; }
-  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
+  try{
+    let row = empAppToRow(e);
+    let {error} = await sb.from('empleados').upsert(row);
+    if(error && /turno_id|horario_propio/i.test(error.message||'')){
+      /* Las columnas "turno_id" (texto) y "horario_propio" (jsonb) todavía no
+         existen en tu tabla "empleados" de Supabase. Se reintenta sin ellas
+         para no perder el resto de la ficha; agrégalas para que el horario
+         laboral configurado por colaborador quede guardado entre sesiones. */
+      delete row.turno_id; delete row.horario_propio;
+      ({error} = await sb.from('empleados').upsert(row));
+    }
+    if(error){ console.warn('Supabase (empleados):', error.message); return error.message; } return true;
+  } catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 async function sbActualizarEstadoEmpleado(id, estado){
   try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error){ console.warn('Supabase (empleados):', error.message); return error.message; } return true; }
@@ -532,6 +547,23 @@ function assetAppToRow(a){
 }
 async function sbGuardarActivo(a){
   try{ const {error} = await sb.from('activos').upsert(assetAppToRow(a)); if(error){ console.warn('Supabase (activos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
+}
+/* Turnos (plantillas de horario reutilizables, continuas o segmentadas) */
+function turnoRowToApp(r){
+  let horario = null;
+  try{ horario = r.horario? (typeof r.horario==='string'? JSON.parse(r.horario) : r.horario) : null; }catch(_e){ horario = null; }
+  return { id:r.id, nombre:r.nombre, dias:r.dias, horario };
+}
+function turnoAppToRow(t){
+  return { id:t.id, nombre:t.nombre, dias:t.dias, horario: JSON.stringify(t.horario||{}) };
+}
+async function sbGuardarTurno(t){
+  try{ const {error} = await sb.from('turnos').upsert(turnoAppToRow(t)); if(error){ console.warn('Supabase (turnos):', error.message); return error.message; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
+}
+async function sbBorrarTurno(id){
+  try{ const {error} = await sb.from('turnos').delete().eq('id', id); if(error){ console.warn('Supabase (turnos):', error.message); return error.message; } return true; }
   catch(err){ console.warn('Supabase no disponible:', err.message); return err.message; }
 }
 /* Reconocimientos (muro de reconocimientos entre colaboradores) */
@@ -647,12 +679,13 @@ async function cargarDesdeSupabase(){
       {data:huellasData, error:e5}, {data:activosData, error:e6}, {data:recogData, error:e7},
       {data:objData, error:e8}, {data:docData, error:e9}, {data:cplData, error:e10},
       {data:svyData, error:e11}, {data:brData, error:e12}, {data:advData, error:e13}, {data:runData, error:e14},
+      {data:turnosData, error:e15},
     ] = await Promise.all([
       sb.from('empleados').select('*'), sb.from('asistencia').select('*'), sb.from('parametros').select('*').eq('id',1).maybeSingle(),
       sb.from('solicitudes').select('*'), sb.from('huellas').select('*'), sb.from('activos').select('*'),
       sb.from('reconocimientos').select('*'), sb.from('objetivos').select('*'), sb.from('documentos').select('*'),
       sb.from('denuncias').select('*'), sb.from('encuestas').select('*'), sb.from('beneficio_solicitudes').select('*'),
-      sb.from('adelantos').select('*'), sb.from('nomina_runs').select('*'),
+      sb.from('adelantos').select('*'), sb.from('nomina_runs').select('*'), sb.from('turnos').select('*'),
     ]);
     if(!e1 && emps){ DB.empleados = emps.map(empRowToApp); }
     else if(e1){ console.warn('Supabase (empleados):', e1.message); toast('⚠️ No se pudieron cargar los colaboradores desde la base de datos: '+e1.message); }
@@ -680,6 +713,8 @@ async function cargarDesdeSupabase(){
     else if(e13){ console.warn('Supabase (adelantos):', e13.message); tablasFaltantes.push('adelantos'); }
     if(!e14 && runData){ DB.payrollRuns = runData.map(runRowToApp); }
     else if(e14){ console.warn('Supabase (nomina_runs):', e14.message); tablasFaltantes.push('nomina_runs'); }
+    if(!e15 && turnosData){ DB.shifts = turnosData.map(turnoRowToApp); }
+    else if(e15){ console.warn('Supabase (turnos):', e15.message); tablasFaltantes.push('turnos (se muestran los turnos de ejemplo por ahora)'); }
     if(!e3 && par){
       Object.assign(CFG, { smmlv:Number(par.smmlv)||CFG.smmlv, auxTransporte:Number(par.aux_transporte)||0,
         saludPct:Number(par.salud_pct)||0, pensionPct:Number(par.pension_pct)||0, horasMes:Number(par.horas_mes)||230,
@@ -739,9 +774,9 @@ const DB = {
   attendance:[],
   huellas:[], // credenciales WebAuthn del kiosco: {credential_id, empleado_id, public_key, counter}
   shifts:[
-    {id:'shift1', nombre:'Administrativo', inicio:'08:00', fin:'17:00', dias:'Lun–Vie'},
-    {id:'shift2', nombre:'Operaciones / Bodega', inicio:'06:30', fin:'15:30', dias:'Lun–Sáb'},
-    {id:'shift3', nombre:'Comercial', inicio:'09:00', fin:'18:00', dias:'Lun–Vie'},
+    {id:'shift1', nombre:'Administrativo', dias:'Lun–Vie', horario:{tipo:'continuo', inicio:'08:00', fin:'17:00', toleranciaMin:5}},
+    {id:'shift2', nombre:'Operaciones / Bodega', dias:'Lun–Sáb', horario:{tipo:'continuo', inicio:'06:30', fin:'15:30', toleranciaMin:5}},
+    {id:'shift3', nombre:'Comercial (jornada partida)', dias:'Lun–Vie', horario:{tipo:'segmentado', bloques:[{inicio:'08:00',fin:'12:00'},{inicio:'14:00',fin:'18:00'}], toleranciaMin:5}},
   ],
   leaveRequests:[],
   documents:[],
@@ -778,6 +813,7 @@ let state = {
   complaintTab:'nueva', complaintSel:null,
   payrollOpenRun: null,
   surveyTemp:null, surveyTab:'gestion',
+  turnoTemp:null, horarioEmpTemp:null,
   navCollapsed:{},
   currentEmp:null,
   openDropdown:null,
@@ -1053,6 +1089,49 @@ function marcasDeRegistro(rec){
   const m=[]; if(rec.entrada) m.push({hora:rec.entrada, tipo:'Entrada'}); if(rec.salida) m.push({hora:rec.salida, tipo:'Salida'}); return m;
 }
 function horaAMinutos(hstr){ if(!hstr) return null; const p=hstr.split(':'); return (Number(p[0])||0)*60 + (Number(p[1])||0); }
+
+/* ---------------------------------------------------------
+   HORARIOS LABORALES (continuos o segmentados con descanso)
+   Un "horario" tiene esta forma:
+     {tipo:'continuo', inicio:'08:00', fin:'17:00', toleranciaMin:5}
+     {tipo:'segmentado', bloques:[{inicio,fin},{inicio,fin},...], toleranciaMin:5}
+   Un colaborador lo obtiene de su horario personalizado (e.horarioPropio,
+   tiene prioridad) o del turno que tenga asignado (e.turnoId -> DB.shifts).
+   Si no tiene ninguno de los dos, no hay horario definido para él.
+   --------------------------------------------------------- */
+function horarioDeEmpleado(e){
+  if(!e) return null;
+  if(e.horarioPropio) return e.horarioPropio;
+  if(e.turnoId){ const t = DB.shifts.find(s=>s.id===e.turnoId); if(t && t.horario) return t.horario; }
+  return null;
+}
+function bloquesHorario(h){
+  if(!h) return [];
+  if(h.tipo==='segmentado') return (h.bloques||[]).filter(b=>b && b.inicio && b.fin);
+  return (h.inicio && h.fin)? [{inicio:h.inicio, fin:h.fin}] : [];
+}
+function horasEsperadasHorario(h){
+  return bloquesHorario(h).reduce((s,b)=> s + Math.max(0, horaAMinutos(b.fin)-horaAMinutos(b.inicio))/60, 0);
+}
+function formatoHorario(h){
+  const bloques = bloquesHorario(h);
+  if(!bloques.length) return 'Sin definir';
+  const txt = bloques.map(b=>`${b.inicio}–${b.fin}`).join(' y ');
+  return `${h.tipo==='segmentado'? 'Segmentada':'Continua'}: ${txt} (${horasEsperadasHorario(h).toFixed(1)}h/día)`;
+}
+/* Evalúa si una marcación de "Entrada" fue tardía, según cuál de los bloques
+   del horario le corresponde (numEntrada: 1 = primera entrada del día — la de
+   la mañana —, 2 = segunda — el regreso del almuerzo en una jornada
+   segmentada —, etc.). Devuelve null si el colaborador no tiene horario
+   definido, para que quien llama decida un valor por defecto. */
+function evaluarEntrada(e, horaStr, numEntrada){
+  const h = horarioDeEmpleado(e);
+  const bloques = bloquesHorario(h);
+  if(!bloques.length) return null;
+  const bloque = bloques[Math.min(Math.max(numEntrada,1)-1, bloques.length-1)];
+  const tolerancia = (h.toleranciaMin!=null)? h.toleranciaMin : 5;
+  return horaAMinutos(horaStr) > (horaAMinutos(bloque.inicio)+tolerancia) ? 'Tarde' : 'A tiempo';
+}
 function horasDeRegistro(rec){
   const marcas = marcasDeRegistro(rec).slice().sort((a,b)=>horaAMinutos(a.hora)-horaAMinutos(b.hora));
   let total=0, abierta=null;
@@ -1401,7 +1480,8 @@ function verPerfil(empId){
       </div>
       <h4 style="font-size:13px; margin-bottom:10px;">Registro del día</h4>
       <div class="table-wrap" style="margin-bottom:16px;"><table><tbody>
-        <tr><td style="font-weight:600; width:40%;">Marcaciones</td><td>${hoy? marcasDeRegistro(hoy).map(m=>`${m.tipo==='Entrada'?'Ingreso':'Salida'} ${m.hora}`).join(' · ')||'—' : '—'}</td></tr>
+        <tr><td style="font-weight:600; width:40%;">Horario asignado</td><td>${formatoHorario(horarioDeEmpleado(e))} <button class="btn btn-ghost btn-sm" style="margin-left:6px;" onclick="abrirHorarioEmpleado('${e.id}')">Configurar</button></td></tr>
+        <tr><td style="font-weight:600;">Marcaciones</td><td>${hoy? marcasDeRegistro(hoy).map(m=>`${m.tipo==='Entrada'?'Ingreso':'Salida'} ${m.hora}`).join(' · ')||'—' : '—'}</td></tr>
         <tr><td style="font-weight:600;">Horas hoy</td><td>${hoy? horasDeRegistro(hoy).horas.toFixed(1)+'h' : '—'}</td></tr>
         <tr><td style="font-weight:600;">Horas esta semana</td><td>${horasSemanaEmpleado(e.id, DEMO_TODAY).toFixed(1)}h / ${CFG.horasSemanalesMax||42}h</td></tr>
       </tbody></table></div>
@@ -1418,6 +1498,92 @@ function verPerfil(empId){
   openModal('Perfil del colaborador', body, foot, true);
 }
 async function registrarHuella(empId){ const e=emp(empId); e.huella=true; const res = await sbGuardarEmpleado(e); const ok = res===true; toast(ok? 'Huella registrada correctamente' : '⚠️ La huella se guardó localmente, pero falló el guardado en la base de datos.'+(ok? '' : ' — '+res)); verPerfil(empId); }
+/* ---------------------------------------------------------
+   HORARIO INDIVIDUAL DE UN COLABORADOR: puede usar un turno ya
+   creado, o un horario personalizado solo para él (ej. "Jorge
+   entra 8-12 y 2-5"), continuo o segmentado. Mismo patrón de
+   estado temporal + re-render que el editor de turnos.
+   --------------------------------------------------------- */
+function abrirHorarioEmpleado(empId){
+  const e = emp(empId); if(!e) return;
+  const modo = e.horarioPropio? 'personalizado' : (e.turnoId? 'turno' : 'ninguno');
+  const h = e.horarioPropio || (e.turnoId? ((DB.shifts.find(s=>s.id===e.turnoId)||{}).horario) : null) || {};
+  state.horarioEmpTemp = {
+    empId,
+    modo,
+    turnoId: e.turnoId || (DB.shifts[0]? DB.shifts[0].id : null),
+    tipo: h.tipo || 'continuo',
+    inicio: h.inicio || '08:00',
+    fin: h.fin || '17:00',
+    bloques: (h.bloques && h.bloques.length)? h.bloques.map(b=>({...b})) : [{inicio:'08:00',fin:'12:00'},{inicio:'14:00',fin:'17:00'}],
+    toleranciaMin: h.toleranciaMin!=null? h.toleranciaMin : 5,
+  };
+  renderModalHorarioEmpleado();
+}
+function renderModalHorarioEmpleado(){
+  const s = state.horarioEmpTemp; const e = emp(s.empId); if(!e){ closeModal(); return; }
+  const horasDia = horasEsperadasHorario(s.tipo==='segmentado'? {tipo:'segmentado', bloques:s.bloques} : {tipo:'continuo', inicio:s.inicio, fin:s.fin});
+  const body = `
+    <p style="font-size:12.5px; color:var(--muted); margin-bottom:10px;">Define el horario esperado de <strong>${e.nombre}</strong> para calcular automáticamente si una marcación de entrada es tardía.</p>
+    <div class="field"><label>¿Cómo se define su horario?</label>
+      <select onchange="state.horarioEmpTemp.modo=this.value; renderModalHorarioEmpleado();">
+        <option value="ninguno" ${s.modo==='ninguno'?'selected':''}>Sin definir</option>
+        <option value="turno" ${s.modo==='turno'?'selected':''}>Usar un turno existente</option>
+        <option value="personalizado" ${s.modo==='personalizado'?'selected':''}>Horario personalizado para este colaborador</option>
+      </select>
+    </div>
+    ${s.modo==='turno'? (DB.shifts.length? `
+    <div class="field"><label>Turno</label>
+      <select onchange="state.horarioEmpTemp.turnoId=this.value; renderModalHorarioEmpleado();">
+        ${DB.shifts.map(sh=>`<option value="${sh.id}" ${s.turnoId===sh.id?'selected':''}>${sh.nombre} — ${formatoHorario(sh.horario)}</option>`).join('')}
+      </select>
+    </div>` : `<p style="font-size:12px; color:var(--danger);">Aún no has creado ningún turno. Crea uno primero desde "Asistencia" → "+ Nuevo turno", o usa un horario personalizado.</p>`) : ''}
+    ${s.modo==='personalizado'? `
+    <div class="field"><label>Tipo de jornada</label>
+      <select onchange="state.horarioEmpTemp.tipo=this.value; renderModalHorarioEmpleado();">
+        <option value="continuo" ${s.tipo==='continuo'?'selected':''}>Continua (sin descanso registrado)</option>
+        <option value="segmentado" ${s.tipo==='segmentado'?'selected':''}>Segmentada (ej. mañana y tarde, con descanso)</option>
+      </select>
+    </div>
+    ${s.tipo==='continuo'? `
+    <div class="field-row">
+      <div class="field"><label>Hora de entrada</label><input type="time" value="${s.inicio}" onchange="state.horarioEmpTemp.inicio=this.value; renderModalHorarioEmpleado();"></div>
+      <div class="field"><label>Hora de salida</label><input type="time" value="${s.fin}" onchange="state.horarioEmpTemp.fin=this.value; renderModalHorarioEmpleado();"></div>
+    </div>` : `
+    ${s.bloques.map((b,i)=>`
+    <div class="field-row" style="align-items:flex-end;">
+      <div class="field"><label>${i===0?'Entrada mañana':i===1?'Entrada tarde (tras el descanso)':'Entrada bloque '+(i+1)}</label><input type="time" value="${b.inicio}" onchange="state.horarioEmpTemp.bloques[${i}].inicio=this.value; renderModalHorarioEmpleado();"></div>
+      <div class="field"><label>${i===0?'Salida (inicio descanso)':'Salida'}</label><input type="time" value="${b.fin}" onchange="state.horarioEmpTemp.bloques[${i}].fin=this.value; renderModalHorarioEmpleado();"></div>
+      ${s.bloques.length>1? `<button type="button" class="btn btn-ghost btn-sm" onclick="quitarBloqueHorarioEmp(${i})">🗑️</button>`:''}
+    </div>`).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" onclick="agregarBloqueHorarioEmp()">+ Agregar otro bloque</button>
+    `}
+    <div class="field"><label>Tolerancia antes de marcar "Tarde" (minutos)</label><input type="number" min="0" value="${s.toleranciaMin}" onchange="state.horarioEmpTemp.toleranciaMin=Number(this.value)||0"></div>
+    <p style="font-size:12px; color:var(--muted); margin-top:4px;">Jornada total: <strong>${horasDia.toFixed(1)}h/día</strong>.</p>
+    ` : ''}`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarHorarioEmpleado()">Guardar horario</button>`;
+  openModal('Horario laboral — '+e.nombre, body, foot);
+}
+function agregarBloqueHorarioEmp(){ state.horarioEmpTemp.bloques.push({inicio:'14:00', fin:'17:00'}); renderModalHorarioEmpleado(); }
+function quitarBloqueHorarioEmp(i){ state.horarioEmpTemp.bloques.splice(i,1); renderModalHorarioEmpleado(); }
+async function guardarHorarioEmpleado(){
+  const s = state.horarioEmpTemp;
+  const e = emp(s.empId); if(!e) return;
+  if(s.modo==='ninguno'){ e.horarioPropio=null; e.turnoId=null; }
+  else if(s.modo==='turno'){
+    if(!s.turnoId){ toast('Selecciona un turno'); return; }
+    e.turnoId=s.turnoId; e.horarioPropio=null;
+  } else {
+    const horario = s.tipo==='segmentado'
+      ? {tipo:'segmentado', bloques:s.bloques.map(b=>({inicio:b.inicio, fin:b.fin})), toleranciaMin:s.toleranciaMin}
+      : {tipo:'continuo', inicio:s.inicio, fin:s.fin, toleranciaMin:s.toleranciaMin};
+    e.horarioPropio = horario; e.turnoId=null;
+  }
+  const res = await sbGuardarEmpleado(e); const ok = res===true;
+  state.horarioEmpTemp = null; closeModal();
+  toast(ok? 'Horario guardado' : '⚠️ El horario se guardó localmente, pero falló el guardado en la base de datos.'+(ok?'':' — '+res));
+  verPerfil(e.id);
+}
 function renovarContrato(empId){
   const e = emp(empId);
   DB.documents.push({id:uid('doc'), empId, nombre:'Otrosí — renovación de contrato', tipo:'Otrosí', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
@@ -1713,8 +1879,14 @@ function renderAsistencia(){
         ${fueraHoy.map(l=>`<tr><td>${personCell(l.empId)}</td><td>${l.tipo}</td><td>${fmtDate(l.fin)}</td></tr>`).join('')}
       </tbody></table></div>` : emptyState('Equipo completo','Nadie tiene permisos o vacaciones activas hoy.')}
       <h2 style="font-size:14px; margin:18px 0 10px;">Turnos configurados</h2>
-      <div class="table-wrap"><table><thead><tr><th>Turno</th><th>Horario</th><th>Días</th></tr></thead><tbody>
-        ${DB.shifts.map(s=>`<tr><td>${s.nombre}</td><td>${s.inicio} – ${s.fin}</td><td>${s.dias}</td></tr>`).join('')}
+      <div class="table-wrap"><table><thead><tr><th>Turno</th><th>Horario</th><th>Días</th><th></th></tr></thead><tbody>
+        ${DB.shifts.map(s=>`<tr>
+          <td style="cursor:pointer;" onclick="abrirTurno('${s.id}')">${s.nombre}</td>
+          <td style="cursor:pointer;" onclick="abrirTurno('${s.id}')">${formatoHorario(s.horario)}</td>
+          <td style="cursor:pointer;" onclick="abrirTurno('${s.id}')">${s.dias}</td>
+          <td><button class="icon-btn" onclick="eliminarTurno('${s.id}')">🗑️</button></td>
+        </tr>`).join('')}
+        ${!DB.shifts.length? `<tr><td colspan="4">${emptyState('Sin turnos','Crea un turno para poder asignárselo a varios colaboradores.')}</td></tr>`:''}
       </tbody></table></div>
       <button class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="abrirTurno()">+ Nuevo turno</button>
     </div>
@@ -1757,26 +1929,97 @@ function registrarMarcacion(){
   if(!rec.marcas) rec.marcas = marcasDeRegistro(rec);
   rec.marcas.push({hora:horaSim, tipo});
   rec.metodo = 'Manual';
-  if(tipo==='Entrada'){ if(!rec.entrada){ rec.entrada=horaSim; rec.estado = horaSim > '08:05' ? 'Tarde' : 'A tiempo'; } }
+  if(tipo==='Entrada'){
+    if(!rec.entrada) rec.entrada=horaSim;
+    const numEntrada = rec.marcas.filter(m=>m.tipo==='Entrada').length;
+    const evalR = evaluarEntrada(emp(empId), horaSim, numEntrada);
+    const esTarde = evalR!==null ? evalR==='Tarde' : (horaSim > '08:05'); // sin horario definido: se usa el umbral por defecto
+    if(esTarde) rec.estado = 'Tarde';
+  }
   else { rec.salida=horaSim; }
   rec.horasDia = Math.round(horasDeRegistro(rec).horas*100)/100;
   sbRegistrarMarcacion(rec);
   const e = emp(empId); if(e) verificarAlertaHoras(e);
   closeModal(); toast('Marcación registrada'); renderApp();
 }
-function abrirTurno(){
-  const body = `
-    <div class="field"><label>Nombre del turno</label><input id="tn_nombre" placeholder="Ej. Turno tarde"></div>
-    <div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="tn_inicio" value="08:00"></div>
-      <div class="field"><label>Hora fin</label><input type="time" id="tn_fin" value="17:00"></div></div>
-    <div class="field"><label>Días</label><input id="tn_dias" value="Lun–Vie"></div>`;
-  const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarTurno()">Guardar turno</button>`;
-  openModal('Nuevo turno', body, foot);
+/* ---------------------------------------------------------
+   TURNOS: editor de horario continuo o segmentado (con bloques
+   dinámicos, ej. mañana + tarde con descanso al almuerzo).
+   Reutiliza el mismo patrón que la creación de encuestas: un
+   estado temporal (state.turnoTemp) que se re-renderiza en el
+   mismo modal cada vez que cambia algo.
+   --------------------------------------------------------- */
+function abrirTurno(id){
+  const t = id? DB.shifts.find(s=>s.id===id) : null;
+  const h = t? (t.horario||{}) : {};
+  state.turnoTemp = {
+    id: t? t.id : null,
+    nombre: t? t.nombre : '',
+    dias: t? t.dias : 'Lun–Vie',
+    tipo: h.tipo || 'continuo',
+    inicio: h.inicio || '08:00',
+    fin: h.fin || '17:00',
+    bloques: (h.bloques && h.bloques.length)? h.bloques.map(b=>({...b})) : [{inicio:'08:00',fin:'12:00'},{inicio:'14:00',fin:'17:00'}],
+    toleranciaMin: h.toleranciaMin!=null? h.toleranciaMin : 5,
+  };
+  renderModalTurno();
 }
-function guardarTurno(){
-  const nombre=$('#tn_nombre').value.trim(); if(!nombre){ toast('Escribe un nombre para el turno'); return; }
-  DB.shifts.push({id:uid('shift'), nombre, inicio:$('#tn_inicio').value, fin:$('#tn_fin').value, dias:$('#tn_dias').value});
-  closeModal(); toast('Turno creado'); renderApp();
+function renderModalTurno(){
+  const t = state.turnoTemp;
+  const horasDia = horasEsperadasHorario(t.tipo==='segmentado'? {tipo:'segmentado', bloques:t.bloques} : {tipo:'continuo', inicio:t.inicio, fin:t.fin});
+  const body = `
+    <div class="field"><label>Nombre del turno</label><input value="${t.nombre}" oninput="state.turnoTemp.nombre=this.value" placeholder="Ej. Turno tarde"></div>
+    <div class="field"><label>Días</label><input value="${t.dias}" oninput="state.turnoTemp.dias=this.value"></div>
+    <div class="field"><label>Tipo de jornada</label>
+      <select onchange="state.turnoTemp.tipo=this.value; renderModalTurno();">
+        <option value="continuo" ${t.tipo==='continuo'?'selected':''}>Continua (sin descanso registrado)</option>
+        <option value="segmentado" ${t.tipo==='segmentado'?'selected':''}>Segmentada (ej. mañana y tarde, con descanso)</option>
+      </select>
+    </div>
+    ${t.tipo==='continuo'? `
+    <div class="field-row">
+      <div class="field"><label>Hora de entrada</label><input type="time" value="${t.inicio}" onchange="state.turnoTemp.inicio=this.value; renderModalTurno();"></div>
+      <div class="field"><label>Hora de salida</label><input type="time" value="${t.fin}" onchange="state.turnoTemp.fin=this.value; renderModalTurno();"></div>
+    </div>` : `
+    ${t.bloques.map((b,i)=>`
+    <div class="field-row" style="align-items:flex-end;">
+      <div class="field"><label>${i===0?'Entrada mañana':i===1?'Entrada tarde (tras el descanso)':'Entrada bloque '+(i+1)}</label><input type="time" value="${b.inicio}" onchange="state.turnoTemp.bloques[${i}].inicio=this.value; renderModalTurno();"></div>
+      <div class="field"><label>${i===0?'Salida (inicio descanso)':'Salida'}</label><input type="time" value="${b.fin}" onchange="state.turnoTemp.bloques[${i}].fin=this.value; renderModalTurno();"></div>
+      ${t.bloques.length>1? `<button type="button" class="btn btn-ghost btn-sm" onclick="quitarBloqueTurno(${i})">🗑️</button>`:''}
+    </div>`).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" onclick="agregarBloqueTurno()">+ Agregar otro bloque</button>
+    `}
+    <div class="field"><label>Tolerancia antes de marcar "Tarde" (minutos)</label><input type="number" min="0" value="${t.toleranciaMin}" onchange="state.turnoTemp.toleranciaMin=Number(this.value)||0"></div>
+    <p style="font-size:12px; color:var(--muted); margin-top:4px;">Jornada total: <strong>${horasDia.toFixed(1)}h/día</strong>. Un colaborador con este turno se marcará "Tarde" si llega después de la hora de entrada de cada bloque, más la tolerancia.</p>`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarTurno()">Guardar turno</button>`;
+  openModal(t.id? 'Editar turno' : 'Nuevo turno', body, foot);
+}
+function agregarBloqueTurno(){ state.turnoTemp.bloques.push({inicio:'14:00', fin:'17:00'}); renderModalTurno(); }
+function quitarBloqueTurno(i){ state.turnoTemp.bloques.splice(i,1); renderModalTurno(); }
+async function guardarTurno(){
+  const t = state.turnoTemp;
+  const nombre = t.nombre.trim(); if(!nombre){ toast('Escribe un nombre para el turno'); return; }
+  const horario = t.tipo==='segmentado'
+    ? {tipo:'segmentado', bloques:t.bloques.map(b=>({inicio:b.inicio, fin:b.fin})), toleranciaMin:t.toleranciaMin}
+    : {tipo:'continuo', inicio:t.inicio, fin:t.fin, toleranciaMin:t.toleranciaMin};
+  let turno;
+  if(t.id){ turno = DB.shifts.find(s=>s.id===t.id); Object.assign(turno, {nombre, dias:t.dias, horario}); }
+  else { turno = {id:uid('shift'), nombre, dias:t.dias, horario}; DB.shifts.push(turno); }
+  const res = await sbGuardarTurno(turno); const ok = res===true;
+  state.turnoTemp = null; closeModal();
+  toast(ok? 'Turno guardado' : '⚠️ El turno se guardó localmente, pero falló el guardado en la base de datos.'+(ok?'':' — '+res)); renderApp();
+}
+async function eliminarTurno(id){
+  const i = DB.shifts.findIndex(s=>s.id===id); if(i<0) return;
+  DB.shifts.splice(i,1);
+  /* A los colaboradores que tenían este turno asignado no se les borra su
+     ficha — solo se les quita la referencia, para que no quede un turnoId
+     "fantasma" apuntando a un turno que ya no existe. */
+  const afectados = DB.empleados.filter(e=>e.turnoId===id);
+  afectados.forEach(e=> e.turnoId=null);
+  await Promise.all(afectados.map(e=>sbGuardarEmpleado(e)));
+  const res = await sbBorrarTurno(id); const ok = res===true;
+  toast(ok? 'Turno eliminado' : '⚠️ Se eliminó localmente, pero falló el borrado en la base de datos.'+(ok?'':' — '+res)); renderApp();
 }
 function abrirPermiso(){
   const activos = DB.empleados.filter(e=>e.estado==='Activo');
@@ -2775,7 +3018,11 @@ function kioscoRegistrarMarcacion(e, metodo){
   rec.marcas.push({hora, tipo});
   rec.metodo = metodo;
   if(tipo==='Entrada'){
-    if(!rec.entrada){ rec.entrada = hora; rec.estado = hora > '08:05' ? 'Tarde' : 'A tiempo'; }
+    if(!rec.entrada) rec.entrada = hora;
+    const numEntrada = rec.marcas.filter(m=>m.tipo==='Entrada').length;
+    const evalR = evaluarEntrada(e, hora, numEntrada);
+    const esTarde = evalR!==null ? evalR==='Tarde' : (hora > '08:05'); // sin horario definido: se usa el umbral por defecto
+    if(esTarde) rec.estado = 'Tarde';
   } else {
     rec.salida = hora; // guarda la última salida del día para compatibilidad
   }
