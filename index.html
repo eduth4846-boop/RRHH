@@ -404,13 +404,16 @@ function empAppToRow(e){
 function attRowToApp(r){
   return { id:r.id, empId:r.empleado_id, fecha:r.fecha, entrada:r.entrada, salida:r.salida, estado:r.estado, metodo:r.metodo };
 }
+/* Todas las funciones sb* devuelven true/false para que quien las llame pueda
+   avisarle al usuario cuando el guardado en la base de datos falla, en vez de
+   fallar en silencio (solo quedaba un console.warn antes). */
 async function sbGuardarEmpleado(e){
-  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error) console.warn('Supabase (empleados):', error.message); }
-  catch(err){ console.warn('Supabase no disponible:', err.message); }
+  try{ const {error} = await sb.from('empleados').upsert(empAppToRow(e)); if(error){ console.warn('Supabase (empleados):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbActualizarEstadoEmpleado(id, estado){
-  try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error) console.warn('Supabase (empleados):', error.message); }
-  catch(err){ console.warn('Supabase no disponible:', err.message); }
+  try{ const {error} = await sb.from('empleados').update({estado}).eq('id', id); if(error){ console.warn('Supabase (empleados):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbGuardarParametros(cfg){
   try{
@@ -420,14 +423,14 @@ async function sbGuardarParametros(cfg){
       pct_arl:cfg.pctArl, pct_caja_compensacion:cfg.pctCaja, pct_sena:cfg.pctSena, pct_icbf:cfg.pctIcbf,
       pct_salud_empleador:cfg.pctSaludPatronal, pct_pension_empleador:cfg.pctPensionPatronal, exoneracion_aportes:cfg.exoneracion,
       company_name:cfg.companyName, company_nit:cfg.companyNit };
-    const {error} = await sb.from('parametros').upsert(row); if(error) console.warn('Supabase (parametros):', error.message);
-  } catch(err){ console.warn('Supabase no disponible:', err.message); }
+    const {error} = await sb.from('parametros').upsert(row); if(error){ console.warn('Supabase (parametros):', error.message); return false; } return true;
+  } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbRegistrarMarcacion(rec){
   try{
     const row = { id:rec.id, empleado_id:rec.empId, fecha:rec.fecha, entrada:rec.entrada, salida:rec.salida, estado:rec.estado, metodo:rec.metodo||'Manual' };
-    const {error} = await sb.from('asistencia').upsert(row); if(error) console.warn('Supabase (asistencia):', error.message);
-  } catch(err){ console.warn('Supabase no disponible:', err.message); }
+    const {error} = await sb.from('asistencia').upsert(row); if(error){ console.warn('Supabase (asistencia):', error.message); return false; } return true;
+  } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbBorrarTodosLosEmpleados(){
   const {error} = await sb.from('empleados').delete().not('id','is', null);
@@ -443,17 +446,17 @@ function solAppToRow(l){
   return { id:l.id, empleado_id:l.empId, tipo:l.tipo, fecha_inicio:l.inicio, fecha_fin:l.fin, motivo:l.motivo, estado:l.estado };
 }
 async function sbGuardarSolicitud(l){
-  try{ const {error} = await sb.from('solicitudes').upsert(solAppToRow(l)); if(error) console.warn('Supabase (solicitudes):', error.message); }
-  catch(err){ console.warn('Supabase no disponible:', err.message); }
+  try{ const {error} = await sb.from('solicitudes').upsert(solAppToRow(l)); if(error){ console.warn('Supabase (solicitudes):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbActualizarSolicitud(id, estado){
-  try{ const {error} = await sb.from('solicitudes').update({estado}).eq('id', id); if(error) console.warn('Supabase (solicitudes):', error.message); }
-  catch(err){ console.warn('Supabase no disponible:', err.message); }
+  try{ const {error} = await sb.from('solicitudes').update({estado}).eq('id', id); if(error){ console.warn('Supabase (solicitudes):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 /* Huellas (credenciales WebAuthn registradas desde el kiosco) */
 async function sbGuardarHuella(h){
-  try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error) console.warn('Supabase (huellas):', error.message); }
-  catch(err){ console.warn('Supabase no disponible:', err.message); }
+  try{ const {error} = await sb.from('huellas').upsert(h, {onConflict:'credential_id'}); if(error){ console.warn('Supabase (huellas):', error.message); return false; } return true; }
+  catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function cargarDesdeSupabase(){
   try{
@@ -461,11 +464,11 @@ async function cargarDesdeSupabase(){
       sb.from('empleados').select('*'), sb.from('asistencia').select('*'), sb.from('parametros').select('*').eq('id',1).maybeSingle(),
       sb.from('solicitudes').select('*'), sb.from('huellas').select('*'),
     ]);
-    if(!e1 && emps && emps.length){ DB.empleados = emps.map(empRowToApp); }
-    else if(e1){ console.warn('Supabase (empleados):', e1.message); }
+    if(!e1 && emps){ DB.empleados = emps.map(empRowToApp); }
+    else if(e1){ console.warn('Supabase (empleados):', e1.message); toast('⚠️ No se pudieron cargar los colaboradores desde la base de datos: '+e1.message); }
     if(!e2 && atts){ DB.attendance = atts.map(attRowToApp); }
     else if(e2){ console.warn('Supabase (asistencia):', e2.message); }
-    if(!e4 && sols && sols.length){ DB.leaveRequests = sols.map(solRowToApp); }
+    if(!e4 && sols){ DB.leaveRequests = sols.map(solRowToApp); }
     else if(e4){ console.warn('Supabase (solicitudes):', e4.message); }
     if(!e5 && huellasData){ DB.huellas = huellasData; }
     else if(e5){ console.warn('Supabase (huellas):', e5.message); }
@@ -482,7 +485,8 @@ async function cargarDesdeSupabase(){
         companyName: par.company_name||CFG.companyName, companyNit: par.company_nit||CFG.companyNit });
     } else if(e3){ console.warn('Supabase (parametros):', e3.message); }
   } catch(err){
-    console.warn('No se pudo conectar a Supabase, se usan los datos de demostración locales:', err.message);
+    console.warn('No se pudo conectar a Supabase:', err.message);
+    toast('⚠️ No se pudo conectar a la base de datos: '+err.message);
   }
 }
 
@@ -504,20 +508,12 @@ let CFG = { smmlv:1423500, auxTransporte:200000, saludPct:4, pensionPct:4, horas
    DATOS BASE (en memoria — sin almacenamiento persistente)
    ========================================================= */
 const DB = {
-  seq:{emp:11, run:2, att:60, shift:4, leave:5, doc:7, cpl:4, ast:9, svy:3, rec:8, obj:6, ben:1, adv:5, rep:8},
-  empleados:[
-    {id:'emp1', nombre:'Mariana Restrepo Gómez', cedula:'43.201.884', cargo:'Gerente de Ventas', area:'Ventas', ingreso:'2019-03-11', contrato:'Término indefinido', salario:6500000, estado:'Activo', email:'mariana.restrepo@meridiano.co', tel:'300 512 8841', supervisor:'Gerencia General', huella:true, puntos:640},
-    {id:'emp2', nombre:'Camilo Andrés Torres', cedula:'1.020.455.332', cargo:'Analista de Sistemas', area:'Tecnología', ingreso:'2021-06-01', contrato:'Término indefinido', salario:4200000, estado:'Activo', email:'camilo.torres@meridiano.co', tel:'311 447 2290', supervisor:'Paula Andrea Gómez', huella:true, puntos:410},
-    {id:'emp3', nombre:'Laura Valentina Pérez', cedula:'1.019.887.204', cargo:'Contadora', area:'Finanzas', ingreso:'2020-01-20', contrato:'Término indefinido', salario:3900000, estado:'Activo', email:'laura.perez@meridiano.co', tel:'304 900 1123', supervisor:'Daniela Fernández Ospina', huella:true, puntos:520},
-    {id:'emp4', nombre:'Juan Esteban Ríos', cedula:'1.022.998.410', cargo:'Auxiliar de Logística', area:'Logística', ingreso:'2023-02-14', contrato:'Término fijo', salario:1423500, estado:'Activo', email:'juan.rios@meridiano.co', tel:'315 233 8874', supervisor:'Diego Alejandro Suárez', huella:false, puntos:180},
-    {id:'emp5', nombre:'Daniela Fernández Ospina', cedula:'52.887.310', cargo:'Coordinadora de Talento Humano', area:'Talento Humano', ingreso:'2019-09-02', contrato:'Término indefinido', salario:4500000, estado:'Activo', email:'daniela.fernandez@meridiano.co', tel:'320 118 5567', supervisor:'Gerencia General', huella:true, puntos:500},
-    {id:'emp6', nombre:'Santiago Molina Duarte', cedula:'1.031.229.887', cargo:'Ejecutivo de Ventas', area:'Ventas', ingreso:'2022-05-16', contrato:'Término indefinido', salario:2100000, estado:'Activo', email:'santiago.molina@meridiano.co', tel:'313 500 9021', supervisor:'Mariana Restrepo Gómez', huella:true, puntos:310},
-    {id:'emp7', nombre:'Paula Andrea Gómez', cedula:'1.018.220.775', cargo:'Desarrolladora de Software', area:'Tecnología', ingreso:'2022-11-07', contrato:'Término indefinido', salario:5200000, estado:'Activo', email:'paula.gomez@meridiano.co', tel:'301 774 6632', supervisor:'Gerencia General', huella:true, puntos:590},
-    {id:'emp8', nombre:'Andrés Felipe Castro', cedula:'80.221.994', cargo:'Conductor', area:'Logística', ingreso:'2018-04-23', contrato:'Término indefinido', salario:1650000, estado:'Activo', email:'andres.castro@meridiano.co', tel:'317 662 4409', supervisor:'Diego Alejandro Suárez', huella:false, puntos:220},
-    {id:'emp9', nombre:'Valeria Jiménez Rueda', cedula:'1.026.550.118', cargo:'Asistente Administrativa', area:'Finanzas', ingreso:'2024-01-08', contrato:'Término fijo', salario:1650000, estado:'Activo', email:'valeria.jimenez@meridiano.co', tel:'302 887 1290', supervisor:'Laura Valentina Pérez', huella:false, puntos:150},
-    {id:'emp10', nombre:'Diego Alejandro Suárez', cedula:'1.015.667.230', cargo:'Supervisor de Operaciones', area:'Operaciones', ingreso:'2020-08-19', contrato:'Término indefinido', salario:3200000, estado:'Inactivo', email:'diego.suarez@meridiano.co', tel:'318 440 7765', supervisor:'Gerencia General', huella:true, puntos:260},
-  ],
-  payrollRuns:[ {id:'run1', periodo:'Agosto 2026 (1-31)', fechaPago:'2026-08-30', estado:'Cerrada', detalles:[]} ],
+  seq:{emp:1, run:1, att:1, shift:4, leave:1, doc:1, cpl:1, ast:1, svy:1, rec:1, obj:1, ben:1, adv:1, rep:1},
+  /* Sin datos de demostración: todo se carga desde Supabase en cargarDesdeSupabase().
+     Estos arreglos arrancan vacíos y solo contienen información real capturada
+     por el usuario o sincronizada desde la base de datos. */
+  empleados:[],
+  payrollRuns:[],
   attendance:[],
   huellas:[], // credenciales WebAuthn del kiosco: {credential_id, empleado_id, public_key, counter}
   shifts:[
@@ -525,101 +521,14 @@ const DB = {
     {id:'shift2', nombre:'Operaciones / Bodega', inicio:'06:30', fin:'15:30', dias:'Lun–Sáb'},
     {id:'shift3', nombre:'Comercial', inicio:'09:00', fin:'18:00', dias:'Lun–Vie'},
   ],
-  leaveRequests:[
-    {id:'lr1', empId:'emp6', tipo:'Vacaciones', inicio:'2026-09-15', fin:'2026-09-22', dias:6, motivo:'Descanso anual', estado:'Aprobado'},
-    {id:'lr2', empId:'emp4', tipo:'Incapacidad', inicio:'2026-09-11', fin:'2026-09-13', dias:3, motivo:'Cita médica y reposo', estado:'Aprobado'},
-    {id:'lr3', empId:'emp9', tipo:'Permiso no remunerado', inicio:'2026-09-19', fin:'2026-09-19', dias:1, motivo:'Trámite personal', estado:'Pendiente'},
-    {id:'lr4', empId:'emp2', tipo:'Vacaciones', inicio:'2026-10-05', fin:'2026-10-12', dias:6, motivo:'Viaje familiar', estado:'Pendiente'},
-  ],
-  documents:[
-    {id:'doc1', empId:'emp2', nombre:'Contrato de trabajo', tipo:'Contrato', fecha:'2021-06-01', estado:'Firmado', firmante:'Camilo Andrés Torres', firmaFecha:'2021-06-01'},
-    {id:'doc2', empId:'emp7', nombre:'Otrosí — ajuste salarial', tipo:'Otrosí', fecha:'2026-08-20', estado:'Firmado', firmante:'Paula Andrea Gómez', firmaFecha:'2026-08-21'},
-    {id:'doc3', empId:'emp9', nombre:'Contrato a término fijo', tipo:'Contrato', fecha:'2026-09-01', estado:'Pendiente', firmante:null, firmaFecha:null},
-    {id:'doc4', empId:'emp4', nombre:'Reglamento interno de trabajo', tipo:'Política', fecha:'2026-09-05', estado:'Pendiente', firmante:null, firmaFecha:null},
-    {id:'doc5', empId:'emp6', nombre:'Certificación laboral', tipo:'Certificación', fecha:'2026-08-28', estado:'Firmado', firmante:'Daniela Fernández Ospina', firmaFecha:'2026-08-28'},
-    {id:'doc6', empId:'emp3', nombre:'Política de datos personales', tipo:'Política', fecha:'2026-09-08', estado:'Pendiente', firmante:null, firmaFecha:null},
-  ],
-  complaints:[
-    {id:'cpl1', folio:'DEN-2026-0001', fecha:'2026-09-02', categoria:'Acoso laboral', relacion:'Colaborador', anonimo:true, nombre:null, email:null,
-      descripcion:'Se reporta un patrón de comentarios despectivos de un supervisor hacia un colaborador del área de logística durante reuniones de equipo.',
-      estado:'En investigación', prioridad:'Alta',
-      comentarios:[{fecha:'2026-09-03', autor:'Daniela Fernández (RRHH)', texto:'Se inició entrevista con las partes involucradas.'}]},
-    {id:'cpl2', folio:'DEN-2026-0002', fecha:'2026-08-25', categoria:'Seguridad y salud en el trabajo', relacion:'Colaborador', anonimo:false, nombre:'Andrés Felipe Castro', email:'andres.castro@meridiano.co',
-      descripcion:'El vehículo de reparto 3 presenta frenos en mal estado y no ha sido llevado a mantenimiento pese a reportes previos.',
-      estado:'Cerrado', prioridad:'Alta',
-      comentarios:[{fecha:'2026-08-26', autor:'Daniela Fernández (RRHH)', texto:'Se coordinó mantenimiento correctivo con el proveedor.'},{fecha:'2026-08-29', autor:'Daniela Fernández (RRHH)', texto:'Vehículo revisado y habilitado nuevamente. Caso cerrado.'}]},
-    {id:'cpl3', folio:'DEN-2026-0003', fecha:'2026-09-10', categoria:'Otro', relacion:'Proveedor', anonimo:true, nombre:null, email:null,
-      descripcion:'Posible conflicto de interés en la adjudicación de un contrato de suministro de papelería.',
-      estado:'Nuevo', prioridad:'Media', comentarios:[]},
-  ],
-  comm:{
-    gmail:[
-      {id:'g1', contacto:'Fondo de Pensiones Porvenir', asunto:'Confirmación de aportes — agosto', fecha:'2026-09-12T09:14:00', leido:false,
-        mensajes:[{de:'ellos', texto:'Confirmamos la recepción de los aportes a pensión correspondientes al periodo agosto 2026.', hora:'09:14'}]},
-      {id:'g2', contacto:'Camilo Andrés Torres', asunto:'Certificado laboral — trámite bancario', fecha:'2026-09-11T15:02:00', leido:true,
-        mensajes:[{de:'ellos', texto:'Buenas tardes, ¿me podrían generar el certificado laboral? Lo necesito para un trámite bancario.', hora:'15:02'},{de:'nosotros', texto:'Claro Camilo, lo generamos hoy mismo y te lo enviamos por este medio.', hora:'15:20'}]},
-      {id:'g3', contacto:'ARL Sura', asunto:'Recordatorio: capacitación de brigadistas', fecha:'2026-09-08T08:30:00', leido:true,
-        mensajes:[{de:'ellos', texto:'Les recordamos la capacitación de brigadistas programada para el 20 de septiembre.', hora:'08:30'}]},
-    ],
-    outlook:[
-      {id:'o1', contacto:'Diego Alejandro Suárez', asunto:'Novedad turno nocturno bodega', fecha:'2026-09-13T18:40:00', leido:false,
-        mensajes:[{de:'ellos', texto:'Se presentó una novedad con el conteo de inventario del turno nocturno, quedo atento a instrucciones.', hora:'18:40'}]},
-      {id:'o2', contacto:'Cámara de Comercio', asunto:'Renovación matrícula mercantil', fecha:'2026-09-05T11:00:00', leido:true,
-        mensajes:[{de:'ellos', texto:'Le recordamos que la renovación de la matrícula mercantil vence el 31 de marzo.', hora:'11:00'}]},
-    ],
-    whatsapp:[
-      {id:'w1', contacto:'Valeria Jiménez Rueda', asunto:'Permiso del 19 de septiembre', fecha:'2026-09-14T10:05:00', leido:false,
-        mensajes:[{de:'ellos', texto:'Hola, quería confirmar si ya quedó aprobado mi permiso del viernes 19.', hora:'10:05'}]},
-      {id:'w2', contacto:'Santiago Molina Duarte', asunto:'Consulta sobre comisiones', fecha:'2026-09-09T14:22:00', leido:true,
-        mensajes:[{de:'ellos', texto:'¿Las comisiones de septiembre se pagan con la nómina ordinaria o aparte?', hora:'14:22'},{de:'nosotros', texto:'Se pagan junto con la nómina ordinaria del mes siguiente.', hora:'14:40'}]},
-    ],
-  },
-  assets:[
-    {id:'ast1', nombre:'Portátil Dell Latitude 5440', categoria:'Tangible', tipo:'Equipo de cómputo', identificador:'SN-DL5440-0091', estado:'Asignado', asignadoA:'emp7', fecha:'2022-11-10', valor:4200000},
-    {id:'ast2', nombre:'Licencia Microsoft 365 Business', categoria:'Intangible', tipo:'Software', identificador:'LIC-M365-0044', estado:'Asignado', asignadoA:'emp3', fecha:'2024-01-15', valor:180000},
-    {id:'ast3', nombre:'Camioneta de reparto — Placa WKL-231', categoria:'Tangible', tipo:'Vehículo', identificador:'WKL-231', estado:'Asignado', asignadoA:'emp8', fecha:'2021-03-02', valor:68000000},
-    {id:'ast4', nombre:'Celular corporativo Samsung A55', categoria:'Tangible', tipo:'Equipo móvil', identificador:'SN-A55-2217', estado:'Disponible', asignadoA:null, fecha:null, valor:1300000},
-    {id:'ast5', nombre:'Licencia Adobe Creative Cloud', categoria:'Intangible', tipo:'Software', identificador:'LIC-ADB-0012', estado:'Mantenimiento', asignadoA:null, fecha:null, valor:950000},
-    {id:'ast6', nombre:'Portátil HP ProBook 440', categoria:'Tangible', tipo:'Equipo de cómputo', identificador:'SN-HP440-0057', estado:'Asignado', asignadoA:'emp2', fecha:'2023-06-20', valor:3600000},
-    {id:'ast7', nombre:'Silla ergonómica Herman Miller', categoria:'Tangible', tipo:'Mobiliario', identificador:'MOB-0119', estado:'Baja', asignadoA:null, fecha:null, valor:2100000},
-    {id:'ast8', nombre:'Token de firma digital corporativa', categoria:'Intangible', tipo:'Seguridad', identificador:'TKN-FD-0006', estado:'Disponible', asignadoA:null, fecha:null, valor:250000},
-  ],
-  surveys:[
-    {id:'svy1', titulo:'Clima laboral — tercer trimestre', descripcion:'Medición trimestral de clima organizacional y bienestar.', estado:'Activa', creada:'2026-09-01',
-      preguntas:[
-        {id:'q1', texto:'Cuento con la colaboración de mis compañeros de área', tipo:'clima'},
-        {id:'q2', texto:'¿Cuál de estos beneficios valoras más?', tipo:'opcion', opciones:['Horario flexible','Día de cumpleaños libre','Auxilio de estudio','Trabajo remoto parcial']},
-        {id:'q3', texto:'¿Qué mejorarías del ambiente de trabajo?', tipo:'abierta'},
-      ],
-      respuestas:[
-        {empId:'emp2', fecha:'2026-09-03', valores:{q1:'Siempre', q2:'Trabajo remoto parcial', q3:'Más espacios de silencio para concentrarme.'}},
-        {empId:'emp6', fecha:'2026-09-04', valores:{q1:'Casi siempre', q2:'Horario flexible', q3:'Mejorar la conexión a internet en la oficina de ventas.'}},
-        {empId:'emp9', fecha:'2026-09-05', valores:{q1:'Siempre', q2:'Día de cumpleaños libre', q3:'Todo bien por ahora.'}},
-      ]},
-    {id:'svy2', titulo:'Evaluación de la capacitación en seguridad', descripcion:'Retroalimentación sobre la jornada de SST de agosto.', estado:'Cerrada', creada:'2026-08-10',
-      preguntas:[
-        {id:'q1', texto:'¿Qué tan útil te pareció la capacitación?', tipo:'clima'},
-        {id:'q2', texto:'¿Recomendarías esta capacitación a otras sedes?', tipo:'opcion', opciones:['Sí','No','Tal vez']},
-      ],
-      respuestas:[
-        {empId:'emp4', fecha:'2026-08-12', valores:{q1:'Siempre', q2:'Sí'}},
-        {empId:'emp8', fecha:'2026-08-12', valores:{q1:'Casi siempre', q2:'Sí'}},
-        {empId:'emp10', fecha:'2026-08-13', valores:{q1:'A veces', q2:'Tal vez'}},
-      ]},
-  ],
-  recognitions:[
-    {id:'rec1', categoria:'Innovación', color:'info', de:'emp5', para:'emp7', mensaje:'Automatizó el proceso de generación de certificados y nos ahorra horas cada semana.', fecha:'2026-09-10', likes:8, comentarios:[{de:'emp2', texto:'¡Bien merecido!'}]},
-    {id:'rec2', categoria:'Trabajo en equipo', color:'green', de:'emp1', para:'emp6', mensaje:'Se quedó apoyando al equipo de logística en un cierre de mes crítico sin que se lo pidieran.', fecha:'2026-09-08', likes:5, comentarios:[]},
-    {id:'rec3', categoria:'Vamos más lejos', color:'amber', de:'emp5', para:'emp3', mensaje:'Encontró un ahorro importante en la renegociación con un proveedor de nómina.', fecha:'2026-09-05', likes:6, comentarios:[{de:'emp9', texto:'Excelente gestión, Laura!'}]},
-    {id:'rec4', categoria:'Compromiso', color:'blue', de:'emp10', para:'emp8', mensaje:'Cubrió una ruta adicional en plena lluvia para que el pedido llegara a tiempo.', fecha:'2026-09-02', likes:9, comentarios:[]},
-  ],
-  objectives:[
-    {id:'obj1', empId:'emp5', tipo:'Organizacional', descripcion:'Reducir la rotación de personal por debajo del 8% anual', meta:'8%', peso:60, avance:70, fechaTermino:'2026-12-31', activo:true, aprobado:true, fechaAprobacion:'2026-01-15', creadoPor:'Gerencia General'},
-    {id:'obj2', empId:'emp5', tipo:'Personal', descripcion:'Certificarse en gestión del cambio organizacional', meta:'Certificación', peso:40, avance:45, fechaTermino:'2026-11-30', activo:true, aprobado:true, fechaAprobacion:'2026-02-01', creadoPor:'Daniela Fernández Ospina'},
-    {id:'obj3', empId:'emp2', tipo:'Organizacional', descripcion:'Migrar el 100% de los servidores a la nueva plataforma en la nube', meta:'100%', peso:70, avance:55, fechaTermino:'2026-12-15', activo:true, aprobado:true, fechaAprobacion:'2026-03-10', creadoPor:'Paula Andrea Gómez'},
-    {id:'obj4', empId:'emp2', tipo:'Personal', descripcion:'Completar curso avanzado de ciberseguridad', meta:'Curso completo', peso:30, avance:20, fechaTermino:'2026-12-01', activo:true, aprobado:false, fechaAprobacion:null, creadoPor:'Paula Andrea Gómez'},
-    {id:'obj5', empId:'emp6', tipo:'Organizacional', descripcion:'Aumentar la cartera de clientes activos en un 15%', meta:'15%', peso:100, avance:80, fechaTermino:'2026-12-31', activo:true, aprobado:true, fechaAprobacion:'2026-01-20', creadoPor:'Mariana Restrepo Gómez'},
-  ],
+  leaveRequests:[],
+  documents:[],
+  complaints:[],
+  comm:{ gmail:[], outlook:[], whatsapp:[] },
+  assets:[],
+  surveys:[],
+  recognitions:[],
+  objectives:[],
   benefits:[
     {id:'ben1', categoria:'Fitness', nombre:'Reembolso semestral de gimnasio', descripcion:'Reembolsa hasta $150.000 de tu membresía cada semestre.', puntos:150, emoji:'🏃'},
     {id:'ben2', categoria:'Salud', nombre:'Chequeo médico preferencial', descripcion:'Acceso prioritario a exámenes médicos anuales.', puntos:200, emoji:'❤️'},
@@ -631,50 +540,10 @@ const DB = {
     {id:'ben8', categoria:'Conocimiento', nombre:'Suscripción a plataforma de e-learning', descripcion:'Acceso ilimitado a cursos online.', puntos:120, emoji:'💻'},
     {id:'ben9', categoria:'Salud', nombre:'Sesiones de bienestar emocional', descripcion:'Acompañamiento con profesionales aliados.', puntos:180, emoji:'🌱'},
   ],
-  benefitRequests:[
-    {id:'br1', empId:'emp2', beneficioId:'ben5', fecha:'2026-09-01', estado:'Aprobado'},
-    {id:'br2', empId:'emp6', beneficioId:'ben1', fecha:'2026-09-05', estado:'Pendiente'},
-  ],
-  advances:[
-    {id:'adv1', empId:'emp2', fecha:'2026-09-03', monto:200000, estado:'Pagado'},
-    {id:'adv2', empId:'emp6', fecha:'2026-09-08', monto:150000, estado:'Pagado'},
-  ],
-  reports:[
-    {id:'rep1', nombre:'Leyes Sociales — agosto', tipo:'Predefinido', usuario:'Daniela Fernández', fecha:'2026-09-01T11:22:00'},
-    {id:'rep2', nombre:'Tu año con Bitácora', tipo:'Predefinido', usuario:'Daniela Fernández', fecha:'2026-08-19T11:31:00'},
-    {id:'rep3', nombre:'Datos para reporte DIAN', tipo:'Predefinido', usuario:'Laura Valentina Pérez', fecha:'2026-08-19T11:21:00'},
-  ],
+  benefitRequests:[],
+  advances:[],
+  reports:[],
 };
-
-/* seed attendance for the last 5 workdays for active employees */
-(function seedAttendance(){
-  const today = new Date(DEMO_TODAY+'T00:00:00');
-  const activos = DB.empleados.filter(e=>e.estado==='Activo');
-  for(let d=4; d>=0; d--){
-    const day = new Date(today); day.setDate(day.getDate()-d);
-    const iso = day.toISOString().slice(0,10);
-    activos.forEach((e,idx)=>{
-      const late = (idx+d)%5===0;
-      const absent = (idx===7 && d===2);
-      if(absent){
-        DB.attendance.push({id:'att'+(DB.seq.att++), empId:e.id, fecha:iso, entrada:null, salida:null, estado:'Ausente'});
-      } else {
-        const hIn = late? '08:1'+(idx%9) : '07:5'+(idx%9);
-        DB.attendance.push({id:'att'+(DB.seq.att++), empId:e.id, fecha:iso, entrada: d===0? null : hIn, salida: d===0? null : '17:0'+(idx%9), estado: late? 'Tarde':'A tiempo'});
-      }
-    });
-  }
-})();
-
-/* seed one payroll run detail (closed, August) */
-(function seedPayroll(){
-  const run = DB.payrollRuns[0];
-  DB.empleados.filter(e=>e.estado==='Activo').forEach(e=>{
-    const det = { empId:e.id, dias:30, hed:0, hen:0, hefd:0, hefn:0, bonif: e.cargo.includes('Ventas')||e.cargo.includes('Ejecutivo')?250000:0, otros:0, otrasDed:0 };
-    calcularDetalle(det, e);
-    run.detalles.push(det);
-  });
-})();
 
 /* =========================================================
    ESTADO DE NAVEGACIÓN
@@ -685,12 +554,12 @@ let state = {
   assetFilterEstado:'Todos', assetFilterCat:'Todas',
   commTab:'todos', commThreadId:null,
   complaintTab:'nueva', complaintSel:null,
-  payrollOpenRun: DB.payrollRuns[0].id,
+  payrollOpenRun: null,
   surveyTemp:null, surveyTab:'gestion',
   navCollapsed:{},
-  currentEmp:'emp2',
+  currentEmp:null,
   openDropdown:null,
-  objEmp:'emp5', recogFiltro:'Todas',
+  objEmp:null, recogFiltro:'Todas',
 };
 
 const NAV_GROUPS = [
@@ -843,11 +712,18 @@ function renderApp(){
     objetivos:renderObjetivos, reconocimientos:renderReconocimientos, beneficios:renderBeneficios,
     adelantos:renderAdelantos, reportes:renderReportes,
   };
-  $('#content').innerHTML = `<div class="page-head"><div><h1>${TITLES[state.view][0]}</h1><div class="subt">${TITLES[state.view][1]}</div></div></div>` + renderers[state.view]();
+  let bodyHtml;
+  try{
+    bodyHtml = renderers[state.view]();
+  } catch(err){
+    console.warn('Error renderizando la vista', state.view, err);
+    bodyHtml = emptyState('Aún no hay colaboradores registrados', 'Crea el primer colaborador desde "Colaboradores" para habilitar esta sección.');
+  }
+  $('#content').innerHTML = `<div class="page-head"><div><h1>${TITLES[state.view][0]}</h1><div class="subt">${TITLES[state.view][1]}</div></div></div>` + bodyHtml;
 
   const you = emp(state.currentEmp) || DB.empleados[0];
-  $('#userHex').textContent = iniciales(you.nombre);
-  $('#userName').textContent = you.nombre.split(' ')[0];
+  $('#userHex').textContent = you? iniciales(you.nombre) : '—';
+  $('#userName').textContent = you? you.nombre.split(' ')[0] : 'Sin colaboradores';
 
   const pc = pendingCounts();
   const totalNotif = pc.permisos+pc.documentos+pc.denuncias+pc.beneficios;
@@ -1032,11 +908,39 @@ function abrirFormEmpleado(id){
       <div class="field"><label>Estado</label><select id="f_estado">${['Activo','Inactivo'].map(o=>`<option ${e&&e.estado===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
     <div class="field-row"><div class="field"><label>Correo</label><input id="f_email" value="${e?e.email:''}"></div>
       <div class="field"><label>Teléfono</label><input id="f_tel" value="${e?e.tel:''}"></div></div>
-    <div class="field"><label>Supervisor</label><input id="f_super" value="${e?e.supervisor:''}"></div>`;
+    <div class="field"><label>Supervisor</label><input id="f_super" value="${e?e.supervisor:''}"></div>
+    <div class="field">
+      <label>Tag NFC (marcación de ingreso y salida)</label>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="asignarTagNFC()">📶 Asignar tag NFC</button>
+        <span id="nfc_form_status" style="font-size:12px; color:var(--muted);">La cédula debe estar diligenciada antes de grabar el tag.</span>
+      </div>
+    </div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarEmpleado('${id||''}')">Guardar</button>`;
   openModal(e? 'Editar colaborador' : 'Nuevo colaborador', body, foot);
 }
-function guardarEmpleado(id){
+/* Graba la cédula del colaborador (tomada del formulario, aunque aún no se
+   haya guardado) en un tag NFC físico. El kiosco de marcación (kioscoEscanearNFC)
+   lee ese mismo valor para identificar al colaborador al marcar ingreso/salida. */
+async function asignarTagNFC(){
+  const statusEl = $('#nfc_form_status');
+  const cedula = ($('#f_cedula')?.value||'').trim();
+  if(!cedula){ if(statusEl){ statusEl.textContent='Escribe primero la cédula del colaborador.'; statusEl.style.color='var(--danger)'; } return; }
+  if(!('NDEFReader' in window)){
+    if(statusEl){ statusEl.textContent='Web NFC no está disponible en este dispositivo o navegador (usa Chrome en Android).'; statusEl.style.color='var(--danger)'; }
+    return;
+  }
+  try{
+    if(statusEl){ statusEl.textContent='Acerca el tag NFC al lector para grabarlo…'; statusEl.style.color='var(--muted)'; }
+    const writer = new NDEFReader();
+    await writer.write({ records:[{ recordType:'text', data:cedula }] });
+    if(statusEl){ statusEl.textContent='✓ Tag NFC asignado correctamente a la cédula '+cedula+'.'; statusEl.style.color='var(--success)'; }
+    toast('Tag NFC asignado correctamente');
+  } catch(err){
+    if(statusEl){ statusEl.textContent='No se pudo grabar el tag: '+err.message; statusEl.style.color='var(--danger)'; }
+  }
+}
+async function guardarEmpleado(id){
   const data = {
     nombre:$('#f_nombre').value.trim(), cedula:$('#f_cedula').value.trim(), cargo:$('#f_cargo').value.trim(), area:$('#f_area').value.trim(),
     contrato:$('#f_contrato').value, ingreso:$('#f_ingreso').value, salario:Number($('#f_salario').value)||0,
@@ -1044,9 +948,13 @@ function guardarEmpleado(id){
   };
   if(!data.nombre || !data.cargo){ toast('Completa al menos nombre y cargo'); return; }
   let saved;
-  if(id){ saved = Object.assign(emp(id), data); toast('Colaborador actualizado'); }
-  else{ saved = {id:uid('emp'), huella:false, puntos:0, ...data}; DB.empleados.push(saved); toast('Colaborador creado'); }
-  sbGuardarEmpleado(saved);
+  if(id){ saved = Object.assign(emp(id), data); }
+  else{ saved = {id:uid('emp'), huella:false, puntos:0, ...data}; DB.empleados.push(saved); }
+  const ok = await sbGuardarEmpleado(saved);
+  if(ok){ toast(id? 'Colaborador actualizado y guardado' : 'Colaborador creado y guardado'); }
+  else{ toast('⚠️ El colaborador se guardó localmente, pero falló el guardado en la base de datos. Revisa la consola.'); }
+  if(!state.currentEmp) state.currentEmp = saved.id;
+  if(!state.objEmp) state.objEmp = saved.id;
   closeModal(); renderApp();
 }
 function abrirBorrarTodosEmpleados(){
@@ -1064,6 +972,7 @@ async function confirmarBorrarTodosEmpleados(){
     await sbBorrarTodosLosEmpleados();
     DB.empleados = []; DB.attendance = [];
     DB.payrollRuns.forEach(r=> r.detalles = []);
+    state.currentEmp = null; state.objEmp = null;
     closeModal(); toast('Todos los registros de colaboradores fueron eliminados'); renderApp();
   } catch(err){
     toast('No se pudo borrar en Supabase: '+err.message);
@@ -1132,18 +1041,26 @@ function verPerfil(empId){
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
   openModal('Perfil del colaborador', body, foot, true);
 }
-function registrarHuella(empId){ const e=emp(empId); e.huella=true; sbGuardarEmpleado(e); toast('Huella registrada correctamente'); verPerfil(empId); }
+async function registrarHuella(empId){ const e=emp(empId); e.huella=true; const ok=await sbGuardarEmpleado(e); toast(ok? 'Huella registrada correctamente' : '⚠️ La huella se guardó localmente, pero falló el guardado en la base de datos.'); verPerfil(empId); }
 function renovarContrato(empId){
   const e = emp(empId);
   DB.documents.push({id:uid('doc'), empId, nombre:'Otrosí — renovación de contrato', tipo:'Otrosí', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
   toast('Contrato renovado. Se generó un otrosí pendiente de firma.'); closeModal();
 }
-function terminarTrabajo(empId){
+async function terminarTrabajo(empId){
   const e = emp(empId);
   if(!confirm(`¿Confirmas terminar el vínculo laboral de ${e.nombre}?`)) return;
-  e.estado='Inactivo'; sbActualizarEstadoEmpleado(e.id,'Inactivo'); toast('Colaborador marcado como inactivo'); closeModal(); if(state.view==='empleados') renderApp();
+  e.estado='Inactivo';
+  const ok = await sbActualizarEstadoEmpleado(e.id,'Inactivo');
+  toast(ok? 'Colaborador marcado como inactivo' : '⚠️ Se marcó como inactivo localmente, pero falló el guardado en la base de datos.');
+  closeModal(); if(state.view==='empleados') renderApp();
 }
-function reactivarTrabajo(empId){ const e=emp(empId); e.estado='Activo'; sbActualizarEstadoEmpleado(e.id,'Activo'); toast('Colaborador reactivado'); closeModal(); if(state.view==='empleados') renderApp(); }
+async function reactivarTrabajo(empId){
+  const e=emp(empId); e.estado='Activo';
+  const ok = await sbActualizarEstadoEmpleado(e.id,'Activo');
+  toast(ok? 'Colaborador reactivado' : '⚠️ Se reactivó localmente, pero falló el guardado en la base de datos.');
+  closeModal(); if(state.view==='empleados') renderApp();
+}
 function generarDocumentoDesdePerfil(empId){
   DB.documents.push({id:uid('doc'), empId, nombre:'Certificación laboral', tipo:'Certificación', fecha:DEMO_TODAY, estado:'Pendiente', firmante:null, firmaFecha:null});
   toast('Documento generado, pendiente de firma'); closeModal(); navigate('documentos');
@@ -2494,6 +2411,11 @@ function irSegunHash(){
 async function initApp(){
   await cargarDesdeSupabase();
   DB.payrollRuns.forEach(run=> run.detalles.forEach(d=>{ const e=emp(d.empId); if(e) calcularDetalle(d, e); }));
+  /* sincroniza el estado de navegación con los datos reales ya cargados,
+     por si los IDs por defecto ya no existen (o todavía no hay ninguno) */
+  if(!DB.empleados.find(e=>e.id===state.currentEmp)) state.currentEmp = DB.empleados[0]? DB.empleados[0].id : null;
+  if(!DB.empleados.find(e=>e.id===state.objEmp)) state.objEmp = DB.empleados[0]? DB.empleados[0].id : null;
+  if(!DB.payrollRuns.find(r=>r.id===state.payrollOpenRun)) state.payrollOpenRun = DB.payrollRuns.length? DB.payrollRuns[DB.payrollRuns.length-1].id : null;
   irSegunHash();
 }
 window.addEventListener('hashchange', irSegunHash);
