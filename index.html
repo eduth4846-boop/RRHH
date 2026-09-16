@@ -105,6 +105,14 @@ ul.navlist button.active{background:var(--primary-3); color:#fff; font-weight:70
 .dp-item .t{font-weight:600; color:var(--text);}
 .dp-item .s{color:var(--muted); font-size:11.5px; margin-top:2px;}
 
+/* ---------- alerta de horas semanales excedidas ---------- */
+.alerta-horas-bar{position:sticky; top:0; z-index:35; box-shadow:0 4px 14px rgba(0,0,0,.15);}
+.alerta-horas-item{display:flex; align-items:center; justify-content:space-between; gap:14px; padding:11px 22px; font-size:12.5px; font-weight:600; color:#fff; border-bottom:1px solid rgba(255,255,255,.25); animation:alertaPulse 1.6s ease-in-out infinite;}
+.alerta-horas-item span{line-height:1.4;}
+.alerta-horas-item button{background:#fff; color:var(--danger); border:none; border-radius:7px; padding:7px 14px; font-weight:800; cursor:pointer; flex:0 0 auto; font-size:12px;}
+.alerta-horas-item button:hover{background:var(--danger-soft);}
+@keyframes alertaPulse{0%,100%{background:var(--danger);} 50%{background:#f16060;}}
+
 .content{padding:24px 26px 60px; flex:1;}
 .page-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:20px; gap:14px; flex-wrap:wrap;}
 .page-head h1{font-size:22px;}
@@ -222,6 +230,14 @@ tbody tr:hover{background:#FAFBFD;}
 #toastRoot{position:fixed; bottom:22px; right:22px; z-index:200; display:flex; flex-direction:column; gap:8px;}
 .toast{background:var(--primary); color:#fff; padding:11px 18px; border-radius:9px; font-size:13px; opacity:0; transform:translateY(8px); transition:opacity .25s, transform .25s; box-shadow:var(--shadow-lg);}
 .toast.show{opacity:1; transform:translateY(0);}
+
+/* ---------- check de confirmación (NFC) ---------- */
+.check-overlay{position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(15,23,44,.4); backdrop-filter:blur(2px); opacity:0; transition:opacity .25s;}
+.check-overlay.show{opacity:1;}
+.check-overlay-card{background:#fff; border-radius:20px; padding:18px 32px 24px; box-shadow:var(--shadow-lg); display:flex; flex-direction:column; align-items:center; gap:4px; transform:scale(.9); transition:transform .25s;}
+.check-overlay.show .check-overlay-card{transform:scale(1);}
+.check-overlay-anim{width:150px; height:150px; border:none; pointer-events:none;}
+.check-overlay-msg{font-family:'Plus Jakarta Sans',sans-serif; font-weight:700; color:var(--success); font-size:15px; text-align:center; margin-top:-6px;}
 
 /* comm center */
 .comm-layout{display:grid; grid-template-columns:320px 1fr; gap:0; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:#fff; min-height:520px;}
@@ -365,6 +381,7 @@ tbody tr:hover{background:#FAFBFD;}
       </div>
       <div id="dropdownRoot"></div>
     </div>
+    <div id="alertaHorasRoot"></div>
     <div class="content" id="content"></div>
   </div>
 </div>
@@ -402,7 +419,14 @@ function empAppToRow(e){
     email:e.email, tel:e.tel, supervisor:e.supervisor, huella:e.huella, puntos:e.puntos };
 }
 function attRowToApp(r){
-  return { id:r.id, empId:r.empleado_id, fecha:r.fecha, entrada:r.entrada, salida:r.salida, estado:r.estado, metodo:r.metodo };
+  /* "marcas" guarda TODOS los ingresos/salidas del día (permite más de un
+     ciclo diario). Se serializa como JSON en una columna de Supabase; si esa
+     columna todavía no existe en tu base de datos, se reconstruye a partir
+     de entrada/salida (comportamiento anterior, un solo ciclo). */
+  let marcas = [];
+  try{ marcas = r.marcas? (typeof r.marcas==='string'? JSON.parse(r.marcas) : r.marcas) : []; }catch(_e){ marcas = []; }
+  if(!marcas.length){ if(r.entrada) marcas.push({hora:r.entrada, tipo:'Entrada'}); if(r.salida) marcas.push({hora:r.salida, tipo:'Salida'}); }
+  return { id:r.id, empId:r.empleado_id, fecha:r.fecha, entrada:r.entrada, salida:r.salida, estado:r.estado, metodo:r.metodo, marcas };
 }
 /* Todas las funciones sb* devuelven true/false para que quien las llame pueda
    avisarle al usuario cuando el guardado en la base de datos falla, en vez de
@@ -422,14 +446,33 @@ async function sbGuardarParametros(cfg){
       pct_cesantias:cfg.pctCesantias, pct_intereses_cesantias:cfg.pctIntCesantias, pct_prima:cfg.pctPrima, pct_vacaciones:cfg.pctVacaciones,
       pct_arl:cfg.pctArl, pct_caja_compensacion:cfg.pctCaja, pct_sena:cfg.pctSena, pct_icbf:cfg.pctIcbf,
       pct_salud_empleador:cfg.pctSaludPatronal, pct_pension_empleador:cfg.pctPensionPatronal, exoneracion_aportes:cfg.exoneracion,
+      horas_semanales_max:cfg.horasSemanalesMax,
       company_name:cfg.companyName, company_nit:cfg.companyNit };
-    const {error} = await sb.from('parametros').upsert(row); if(error){ console.warn('Supabase (parametros):', error.message); return false; } return true;
+    let {error} = await sb.from('parametros').upsert(row);
+    if(error && /horas_semanales_max/i.test(error.message||'')){
+      /* La columna "horas_semanales_max" todavía no existe en la tabla
+         "parametros" de Supabase; se reintenta sin ella. Agrégala (tipo
+         numérico) para que el límite legal de jornada quede guardado. */
+      delete row.horas_semanales_max;
+      ({error} = await sb.from('parametros').upsert(row));
+    }
+    if(error){ console.warn('Supabase (parametros):', error.message); return false; } return true;
   } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbRegistrarMarcacion(rec){
   try{
-    const row = { id:rec.id, empleado_id:rec.empId, fecha:rec.fecha, entrada:rec.entrada, salida:rec.salida, estado:rec.estado, metodo:rec.metodo||'Manual' };
-    const {error} = await sb.from('asistencia').upsert(row); if(error){ console.warn('Supabase (asistencia):', error.message); return false; } return true;
+    const row = { id:rec.id, empleado_id:rec.empId, fecha:rec.fecha, entrada:rec.entrada, salida:rec.salida, estado:rec.estado, metodo:rec.metodo||'Manual', marcas: JSON.stringify(rec.marcas||[]) };
+    let {error} = await sb.from('asistencia').upsert(row);
+    if(error && /marcas/i.test(error.message||'')){
+      /* La columna "marcas" (tipo texto o jsonb) todavía no existe en la
+         tabla "asistencia" de Supabase. Se reintenta sin ella para no perder
+         el resto del registro; agrega esa columna para guardar el historial
+         completo de ingresos/salidas del día entre sesiones. */
+      delete row.marcas;
+      ({error} = await sb.from('asistencia').upsert(row));
+    }
+    if(error){ console.warn('Supabase (asistencia):', error.message); return false; }
+    return true;
   } catch(err){ console.warn('Supabase no disponible:', err.message); return false; }
 }
 async function sbBorrarTodosLosEmpleados(){
@@ -482,6 +525,7 @@ async function cargarDesdeSupabase(){
         pctSena:Number(par.pct_sena)||CFG.pctSena, pctIcbf:Number(par.pct_icbf)||CFG.pctIcbf,
         pctSaludPatronal:Number(par.pct_salud_empleador)||CFG.pctSaludPatronal, pctPensionPatronal:Number(par.pct_pension_empleador)||CFG.pctPensionPatronal,
         exoneracion: par.exoneracion_aportes!==null? !!par.exoneracion_aportes : CFG.exoneracion,
+        horasSemanalesMax:Number(par.horas_semanales_max)||CFG.horasSemanalesMax,
         companyName: par.company_name||CFG.companyName, companyNit: par.company_nit||CFG.companyNit });
     } else if(e3){ console.warn('Supabase (parametros):', e3.message); }
   } catch(err){
@@ -502,6 +546,11 @@ let CFG = { smmlv:1423500, auxTransporte:200000, saludPct:4, pensionPct:4, horas
   pctCesantias:8.33, pctIntCesantias:12, pctPrima:8.33, pctVacaciones:4.17,
   pctArl:0.522, pctCaja:4, pctSena:2, pctIcbf:3, pctSaludPatronal:8.5, pctPensionPatronal:12,
   exoneracion:true,
+  /* Jornada máxima legal semanal (Ley 2101 de 2021, art. 161 CST — reducción
+     gradual de 48 a 42 horas). Desde el 16 de julio de 2026 el tope es de
+     42 horas semanales. Ajusta este valor desde "Parámetros legales" si la
+     norma vuelve a cambiar o si tu empresa tiene una jornada pactada distinta. */
+  horasSemanalesMax:42,
   companyName:'Grupo Meridiano S.A.S.', companyNit:'900.482.117-3', companyLogo:null };
 
 /* =========================================================
@@ -560,6 +609,10 @@ let state = {
   currentEmp:null,
   openDropdown:null,
   objEmp:null, recogFiltro:'Todas',
+  /* alertasHoras: clave "{empId}_{lunesDeLaSemana}" -> {empId,nombre,horas,limite,revisado}.
+     Se usa para no repetir la alarma sonora una vez que el admin ya la revisó
+     esa semana para ese colaborador. */
+  alertasHoras:{},
 };
 
 const NAV_GROUPS = [
@@ -619,6 +672,20 @@ function toast(msg){
   $('#toastRoot').appendChild(t);
   requestAnimationFrame(()=>t.classList.add('show'));
   setTimeout(()=>{t.classList.remove('show'); setTimeout(()=>t.remove(),300);},2600);
+}
+/* Animación de confirmación (check) para marcaciones NFC exitosas y para la
+   asignación de un tag NFC. Se muestra un par de segundos y se retira sola. */
+function mostrarCheckExito(mensaje){
+  const root = document.createElement('div');
+  root.className = 'check-overlay';
+  root.innerHTML = `
+    <div class="check-overlay-card">
+      <iframe class="check-overlay-anim" src="https://lottie.host/embed/312f68b9-b13e-4f56-89ec-3c1dd9fc8522/o7zwnccNM9.lottie" title="Confirmado" frameborder="0"></iframe>
+      ${mensaje? `<div class="check-overlay-msg">${mensaje}</div>` : ''}
+    </div>`;
+  document.body.appendChild(root);
+  requestAnimationFrame(()=>root.classList.add('show'));
+  setTimeout(()=>{ root.classList.remove('show'); setTimeout(()=>root.remove(), 300); }, 2000);
 }
 function openModal(title, bodyHtml, footHtml, wide){
   $('#modalRoot').innerHTML = `
@@ -731,6 +798,7 @@ function renderApp(){
   $('#commDot').hidden = unreadComm()===0;
 
   if(state.openDropdown) renderDropdown(state.openDropdown); else $('#dropdownRoot').innerHTML='';
+  renderAlertasHorasBanner();
   afterRenderHooks();
 }
 function afterRenderHooks(){ if(state.view==='comunicacion') scrollMsgsToBottom(); }
@@ -790,6 +858,102 @@ function personCell(empId){
   return `<div class="person">${hexAvatar(empId,'sm')}<div><div class="nm">${e.nombre}</div><div class="sub">${e.cargo}</div></div></div>`;
 }
 function emptyState(big, small){ return `<div class="empty"><div class="big">${big}</div><div>${small}</div></div>`; }
+
+/* =========================================================
+   HORAS TRABAJADAS Y JORNADA SEMANAL MÁXIMA (Ley 2101 de 2021)
+   Un registro de asistencia (DB.attendance) ahora puede tener
+   varios ciclos de entrada/salida en el mismo día (rec.marcas).
+   Estas funciones calculan las horas efectivamente laboradas por
+   día y por semana a partir de esas marcaciones.
+   ========================================================= */
+function marcasDeRegistro(rec){
+  if(rec.marcas && rec.marcas.length) return rec.marcas;
+  const m=[]; if(rec.entrada) m.push({hora:rec.entrada, tipo:'Entrada'}); if(rec.salida) m.push({hora:rec.salida, tipo:'Salida'}); return m;
+}
+function horaAMinutos(hstr){ if(!hstr) return null; const p=hstr.split(':'); return (Number(p[0])||0)*60 + (Number(p[1])||0); }
+function horasDeRegistro(rec){
+  const marcas = marcasDeRegistro(rec).slice().sort((a,b)=>horaAMinutos(a.hora)-horaAMinutos(b.hora));
+  let total=0, abierta=null;
+  marcas.forEach(m=>{
+    if(m.tipo==='Entrada'){ abierta = m.hora; }
+    else if(m.tipo==='Salida' && abierta!=null){
+      let mins = horaAMinutos(m.hora) - horaAMinutos(abierta);
+      if(mins<0) mins += 24*60; // cruce de medianoche
+      total += mins/60; abierta = null;
+    }
+  });
+  return { horas: total, abierta };
+}
+function inicioSemanaISO(fechaISO){
+  const d = new Date(fechaISO+'T00:00:00'); const dow = d.getDay(); const diff = dow===0? -6 : 1-dow;
+  d.setDate(d.getDate()+diff); return d.toISOString().slice(0,10);
+}
+function finSemanaISO(inicioISO){ const d=new Date(inicioISO+'T00:00:00'); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); }
+function horasSemanaEmpleado(empId, fechaRef){
+  const ini = inicioSemanaISO(fechaRef), fin = finSemanaISO(ini);
+  return DB.attendance.filter(a=>a.empId===empId && a.fecha>=ini && a.fecha<=fin)
+    .reduce((sum,a)=> sum + horasDeRegistro(a).horas, 0);
+}
+
+/* ---------------------------------------------------------
+   ALARMA SONORA: cuando un colaborador supera las horas
+   semanales reglamentadas, se dispara una voz que repite
+   "Revisar tiempo laboral de <nombre>" cada pocos segundos y
+   no se detiene hasta que el administrador presiona "Ya revisé".
+   --------------------------------------------------------- */
+let _alarmaHorasInterval = null;
+function alertasHorasPendientes(){ return Object.entries(state.alertasHoras).filter(([_,a])=>!a.revisado); }
+function verificarAlertaHoras(e){
+  if(!e || e.estado!=='Activo') return;
+  const limite = CFG.horasSemanalesMax||42;
+  const horas = horasSemanaEmpleado(e.id, DEMO_TODAY);
+  const key = e.id+'_'+inicioSemanaISO(DEMO_TODAY);
+  if(horas > limite){
+    const existente = state.alertasHoras[key];
+    if(!existente){
+      state.alertasHoras[key] = { empId:e.id, nombre:e.nombre, horas:Math.round(horas*10)/10, limite, revisado:false };
+      iniciarAlarmaHoras();
+    } else if(!existente.revisado){
+      existente.horas = Math.round(horas*10)/10; // mantiene el conteo actualizado mientras no se revise
+    }
+  }
+  renderAlertasHorasBanner();
+}
+function verificarTodasLasAlertasHoras(){ DB.empleados.filter(e=>e.estado==='Activo').forEach(verificarAlertaHoras); }
+function iniciarAlarmaHoras(){
+  if(_alarmaHorasInterval) return; // ya está sonando
+  hablarAlertaHoras();
+  _alarmaHorasInterval = setInterval(hablarAlertaHoras, 8000);
+}
+function detenerAlarmaHorasSiNoHayPendientes(){
+  if(!alertasHorasPendientes().length && _alarmaHorasInterval){ clearInterval(_alarmaHorasInterval); _alarmaHorasInterval=null; if('speechSynthesis' in window) speechSynthesis.cancel(); }
+}
+function hablarAlertaHoras(){
+  const pendientes = alertasHorasPendientes();
+  if(!pendientes.length){ detenerAlarmaHorasSiNoHayPendientes(); return; }
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  pendientes.forEach(([_,a], i)=>{
+    const u = new SpeechSynthesisUtterance(`Revisar tiempo laboral de ${a.nombre}`);
+    u.lang='es-CO'; u.rate=0.95; u.pitch=1;
+    setTimeout(()=>{ try{ speechSynthesis.speak(u); }catch(_e){} }, i*2600);
+  });
+}
+function revisarAlertaHoras(key){
+  if(state.alertasHoras[key]) state.alertasHoras[key].revisado = true;
+  detenerAlarmaHorasSiNoHayPendientes();
+  renderAlertasHorasBanner();
+}
+function renderAlertasHorasBanner(){
+  const root = $('#alertaHorasRoot'); if(!root) return;
+  const pendientes = alertasHorasPendientes();
+  if(!pendientes.length){ root.innerHTML=''; return; }
+  root.innerHTML = `<div class="alerta-horas-bar">${pendientes.map(([key,a])=>`
+    <div class="alerta-horas-item">
+      <span>🔊 <strong>${a.nombre}</strong> superó la jornada semanal máxima permitida (${a.limite}h según la Ley 2101) — lleva <strong>${a.horas}h</strong> esta semana.</span>
+      <button onclick="revisarAlertaHoras('${key}')">Ya revisé</button>
+    </div>`).join('')}</div>`;
+}
 
 /* =========================================================
    EXPORTACIÓN CSV (usado por Reportes y por varios módulos)
@@ -949,7 +1113,7 @@ async function asignarTagNFC(){
     const writer = new NDEFReader();
     await writer.write({ records:[{ recordType:'text', data:cedula }] }, { signal: controller.signal });
     if(statusEl){ statusEl.textContent='✓ Tag NFC asignado correctamente a la cédula '+cedula+'.'; statusEl.style.color='var(--success)'; }
-    toast('Tag NFC asignado correctamente');
+    mostrarCheckExito('Tag NFC asignado — '+cedula);
   } catch(err){
     if(err.name==='AbortError'){
       /* esta escritura fue cancelada a propósito por un nuevo intento; no mostramos error */
@@ -1049,8 +1213,9 @@ function verPerfil(empId){
       </div>
       <h4 style="font-size:13px; margin-bottom:10px;">Registro del día</h4>
       <div class="table-wrap" style="margin-bottom:16px;"><table><tbody>
-        <tr><td style="font-weight:600; width:40%;">Entrada</td><td>${hoy&&hoy.entrada? hoy.entrada : '—'}</td></tr>
-        <tr><td style="font-weight:600;">Salida</td><td>${hoy&&hoy.salida? hoy.salida : '—'}</td></tr>
+        <tr><td style="font-weight:600; width:40%;">Marcaciones</td><td>${hoy? marcasDeRegistro(hoy).map(m=>`${m.tipo==='Entrada'?'Ingreso':'Salida'} ${m.hora}`).join(' · ')||'—' : '—'}</td></tr>
+        <tr><td style="font-weight:600;">Horas hoy</td><td>${hoy? horasDeRegistro(hoy).horas.toFixed(1)+'h' : '—'}</td></tr>
+        <tr><td style="font-weight:600;">Horas esta semana</td><td>${horasSemanaEmpleado(e.id, DEMO_TODAY).toFixed(1)}h / ${CFG.horasSemanalesMax||42}h</td></tr>
       </tbody></table></div>
       <div class="points-badge" style="margin-bottom:16px;">⭐ ${e.puntos} puntos disponibles</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -1317,13 +1482,27 @@ function renderAsistencia(){
   const marcHoy = DB.attendance.filter(a=>a.fecha===DEMO_TODAY).sort((a,b)=>emp(a.empId).nombre.localeCompare(emp(b.empId).nombre));
   const fueraHoy = DB.leaveRequests.filter(l=>l.estado==='Aprobado' && l.inicio<=DEMO_TODAY && l.fin>=DEMO_TODAY);
   const pendientes = DB.leaveRequests.filter(l=>l.estado==='Pendiente');
+  const limiteSemanal = CFG.horasSemanalesMax||42;
   return `
   <div class="grid grid-2" style="margin-bottom:18px;">
     <div class="card card-pad">
       <div class="section-title"><h2>Marcaciones de hoy</h2><button class="btn btn-primary btn-sm" onclick="abrirMarcacion()">+ Registrar marcación</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Colaborador</th><th>Entrada</th><th>Salida</th><th>Estado</th></tr></thead><tbody>
-        ${marcHoy.map(a=>`<tr><td>${personCell(a.empId)}</td><td>${a.entrada||'—'}</td><td>${a.salida||'—'}</td><td>${pillAsistencia(a.estado)}</td></tr>`).join('')}
-        ${!marcHoy.length? `<tr><td colspan="4">${emptyState('Sin marcaciones','Aún no se registran marcaciones para hoy.')}</td></tr>`:''}
+      <p class="hint" style="margin:-6px 0 12px;">Cada colaborador puede marcar varios ingresos y salidas en el mismo día; las horas se suman automáticamente. Jornada máxima legal: <strong>${limiteSemanal}h/semana</strong> (Ley 2101 de 2021).</p>
+      <div class="table-wrap"><table><thead><tr><th>Colaborador</th><th>Marcaciones de hoy</th><th>Horas hoy</th><th>Horas semana</th><th>Estado</th></tr></thead><tbody>
+        ${marcHoy.map(a=>{
+          const horasHoy = horasDeRegistro(a).horas;
+          const horasSemana = horasSemanaEmpleado(a.empId, DEMO_TODAY);
+          const sobreLimite = horasSemana > limiteSemanal;
+          const chips = marcasDeRegistro(a).map(m=>`<span class="pill ${m.tipo==='Entrada'?'pill-green':'pill-gray'}" style="margin:1px 3px 1px 0;">${m.tipo==='Entrada'?'Ingreso':'Salida'} ${m.hora}</span>`).join('');
+          return `<tr>
+            <td>${personCell(a.empId)}</td>
+            <td>${chips||'—'}</td>
+            <td>${horasHoy? horasHoy.toFixed(1)+'h' : '—'}</td>
+            <td>${sobreLimite? `<span class="pill pill-red">${horasSemana.toFixed(1)}h / ${limiteSemanal}h</span>` : `${horasSemana.toFixed(1)}h / ${limiteSemanal}h`}</td>
+            <td>${pillAsistencia(a.estado)}</td>
+          </tr>`;
+        }).join('')}
+        ${!marcHoy.length? `<tr><td colspan="5">${emptyState('Sin marcaciones','Aún no se registran marcaciones para hoy.')}</td></tr>`:''}
       </tbody></table></div>
     </div>
     <div class="card card-pad">
@@ -1372,10 +1551,15 @@ function registrarMarcacion(){
   const empId = $('#mk_emp').value, tipo = $('#mk_tipo').value;
   const horaSim = tipo==='Entrada' ? '08:0'+Math.floor(Math.random()*9) : '17:0'+Math.floor(Math.random()*9);
   let rec = DB.attendance.find(a=>a.empId===empId && a.fecha===DEMO_TODAY);
-  if(!rec){ rec = {id:uid('att'), empId, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo:'Manual'}; DB.attendance.push(rec); }
-  if(tipo==='Entrada'){ rec.entrada=horaSim; rec.estado = horaSim > '08:05' ? 'Tarde' : 'A tiempo'; }
+  if(!rec){ rec = {id:uid('att'), empId, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo:'Manual', marcas:[]}; DB.attendance.push(rec); }
+  if(!rec.marcas) rec.marcas = marcasDeRegistro(rec);
+  rec.marcas.push({hora:horaSim, tipo});
+  rec.metodo = 'Manual';
+  if(tipo==='Entrada'){ if(!rec.entrada){ rec.entrada=horaSim; rec.estado = horaSim > '08:05' ? 'Tarde' : 'A tiempo'; } }
   else { rec.salida=horaSim; }
+  rec.horasDia = Math.round(horasDeRegistro(rec).horas*100)/100;
   sbRegistrarMarcacion(rec);
+  const e = emp(empId); if(e) verificarAlertaHoras(e);
   closeModal(); toast('Marcación registrada'); renderApp();
 }
 function abrirTurno(){
@@ -2090,7 +2274,9 @@ function renderParametros(){
       <div class="field"><label>Auxilio de transporte (COP)</label><input type="number" id="cf_aux" value="${CFG.auxTransporte}"></div></div>
     <div class="field-row"><div class="field"><label>Aporte a salud (%)</label><input type="number" id="cf_salud" value="${CFG.saludPct}"></div>
       <div class="field"><label>Aporte a pensión (%)</label><input type="number" id="cf_pension" value="${CFG.pensionPct}"></div></div>
-    <div class="field"><label>Horas mensuales de referencia</label><input type="number" id="cf_horas" value="${CFG.horasMes}"></div>
+    <div class="field-row"><div class="field"><label>Horas mensuales de referencia</label><input type="number" id="cf_horas" value="${CFG.horasMes}"></div>
+      <div class="field"><label>Jornada máxima semanal (h) — alarma de exceso</label><input type="number" step="0.5" id="cf_horas_semana" value="${CFG.horasSemanalesMax||42}"></div></div>
+    <p style="font-size:11.5px; color:var(--muted); margin:-6px 0 14px;">Ley 2101 de 2021: la jornada semanal máxima bajó a 42 horas desde el 16 de julio de 2026. Si cambia la norma o tu empresa pacta otra jornada, ajústala aquí.</p>
     <h3 style="font-size:13px; margin:14px 0 8px;">Recargos de horas extra y festivos (%)</h3>
     <div class="field-row"><div class="field"><label>Diurna</label><input type="number" id="cf_hed" value="${CFG.rHED}"></div>
       <div class="field"><label>Nocturna</label><input type="number" id="cf_hen" value="${CFG.rHEN}"></div></div>
@@ -2120,6 +2306,7 @@ function renderParametros(){
 function guardarParametros(){
   CFG = { ...CFG, smmlv:Number($('#cf_smmlv').value)||CFG.smmlv, auxTransporte:Number($('#cf_aux').value)||0,
     saludPct:Number($('#cf_salud').value)||0, pensionPct:Number($('#cf_pension').value)||0, horasMes:Number($('#cf_horas').value)||230,
+    horasSemanalesMax:Number($('#cf_horas_semana').value)||42,
     rHED:Number($('#cf_hed').value)||0, rHEN:Number($('#cf_hen').value)||0, rHEFD:Number($('#cf_hefd').value)||0, rHEFN:Number($('#cf_hefn').value)||0,
     pctCesantias:Number($('#cf_cesantias').value)||0, pctIntCesantias:Number($('#cf_intces').value)||0,
     pctPrima:Number($('#cf_prima').value)||0, pctVacaciones:Number($('#cf_vacaciones').value)||0,
@@ -2129,6 +2316,7 @@ function guardarParametros(){
     exoneracion: $('#cf_exon').checked };
   DB.payrollRuns.forEach(run=>{ if(run.estado!=='Cerrada') run.detalles.forEach(d=>{ const e=emp(d.empId); if(e) calcularDetalle(d, e); }); });
   sbGuardarParametros(CFG);
+  verificarTodasLasAlertasHoras();
   toast('Parámetros actualizados'); renderApp();
 }
 
@@ -2142,7 +2330,7 @@ function ocultarTodosLosRoots(){
   ['rootAdmin','rootPortal','rootKiosco','rootModeSelect'].forEach(id=>{ const el=$('#'+id); if(el) el.classList.add('hidden'); });
 }
 function mostrarSelector(){ ocultarTodosLosRoots(); $('#rootModeSelect').classList.remove('hidden'); location.hash=''; renderModeSelect(); }
-function mostrarAdmin(){ ocultarTodosLosRoots(); $('#rootAdmin').classList.remove('hidden'); location.hash='admin'; renderApp(); }
+function mostrarAdmin(){ ocultarTodosLosRoots(); $('#rootAdmin').classList.remove('hidden'); location.hash='admin'; renderApp(); verificarTodasLasAlertasHoras(); }
 function mostrarPortal(){ ocultarTodosLosRoots(); $('#rootPortal').classList.remove('hidden'); location.hash='colaborador'; portalState = {view:'login', empId:null}; renderPortal(); }
 function mostrarKiosco(){ ocultarTodosLosRoots(); $('#rootKiosco').classList.remove('hidden'); location.hash='kiosco'; renderKiosco(); }
 function renderModeSelect(){
@@ -2208,6 +2396,7 @@ function portalPerfilHtml(e){
       <div class="card stat"><div class="num">${r.inasistencias}</div><div class="lbl">Ausencias</div></div>
       <div class="card stat"><div class="num">${e.puntos}</div><div class="lbl">Puntos</div></div>
     </div>
+    <p style="font-size:12.5px; color:var(--muted); margin:-10px 0 18px;">Horas trabajadas esta semana: <strong>${horasSemanaEmpleado(e.id, DEMO_TODAY).toFixed(1)}h</strong> de un máximo legal de ${CFG.horasSemanalesMax||42}h (Ley 2101 de 2021).</p>
 
     <div class="section-title"><h2>Mi perfil</h2></div>
     <div class="table-wrap card" style="margin-bottom:20px;"><table><tbody>
@@ -2222,8 +2411,8 @@ function portalPerfilHtml(e){
 
     <div class="section-title"><h2>Mis marcaciones</h2><span class="hint">Últimos registros</span></div>
     <div class="table-wrap card" style="margin-bottom:20px;"><table>
-      <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Estado</th><th>Método</th></tr></thead>
-      <tbody>${misMarcaciones.length? misMarcaciones.map(a=>`<tr><td>${fmtDate(a.fecha)}</td><td>${a.entrada||'—'}</td><td>${a.salida||'—'}</td><td>${a.estado}</td><td>${a.metodo||'Manual'}</td></tr>`).join('') : `<tr><td colspan="5">${emptyState('Sin marcaciones','Aún no tienes marcaciones registradas.')}</td></tr>`}</tbody>
+      <thead><tr><th>Fecha</th><th>Marcaciones</th><th>Horas</th><th>Estado</th><th>Método</th></tr></thead>
+      <tbody>${misMarcaciones.length? misMarcaciones.map(a=>`<tr><td>${fmtDate(a.fecha)}</td><td>${marcasDeRegistro(a).map(m=>`${m.tipo==='Entrada'?'Ingreso':'Salida'} ${m.hora}`).join(' · ')||'—'}</td><td>${horasDeRegistro(a).horas.toFixed(1)}h</td><td>${a.estado}</td><td>${a.metodo||'Manual'}</td></tr>`).join('') : `<tr><td colspan="5">${emptyState('Sin marcaciones','Aún no tienes marcaciones registradas.')}</td></tr>`}</tbody>
     </table></div>
 
     <div class="section-title"><h2>Mis solicitudes</h2><button class="btn btn-primary" onclick="portalAbrirSolicitud()">+ Nueva solicitud</button></div>
@@ -2284,7 +2473,10 @@ function actualizarReloj(){
   el.textContent = now.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const dEl = $('#kioskDate'); if(dEl) dEl.textContent = now.toLocaleDateString('es-CO',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 }
-function kioscoModo(m){ kioscoState.modo=m; renderKiosco(); }
+function kioscoModo(m){
+  if(_nfcScanController){ _nfcScanController.abort(); _nfcScanController = null; } // deja de escuchar NFC al cambiar de modo
+  kioscoState.modo=m; renderKiosco();
+}
 function kioscoSetStatus(tipo, msg){ const el=$('#kioskStatus'); if(el){ el.className='kiosk-status '+tipo; el.textContent=msg; } }
 function renderKioscoBody(){
   const el = $('#kioskBody'); if(!el) return;
@@ -2299,7 +2491,7 @@ function renderKioscoBody(){
     el.innerHTML = `
       <div class="card card-pad">
         <p class="hint" style="margin-bottom:12px;">Acerca la tarjeta o llavero NFC del colaborador al lector del dispositivo. Requiere Chrome para Android sobre HTTPS.</p>
-        <button class="btn btn-primary btn-block" ${soportado?'':'disabled'} onclick="kioscoEscanearNFC()">📶 Escanear tarjeta NFC</button>
+        <button id="kk_nfc_btn" class="btn btn-primary btn-block" ${soportado?'':'disabled'} onclick="kioscoEscanearNFC()">📶 Escanear tarjeta NFC</button>
         ${soportado? '' : '<p class="hint" style="margin-top:8px; color:var(--danger);">Web NFC no está disponible en este navegador/dispositivo.</p>'}
       </div>`;
   } else if(kioscoState.modo==='huella'){
@@ -2323,13 +2515,25 @@ function kioscoRegistrarMarcacion(e, metodo){
   const now = new Date();
   const hora = now.toTimeString().slice(0,5);
   let rec = DB.attendance.find(a=>a.empId===e.id && a.fecha===DEMO_TODAY);
-  if(!rec){ rec = {id:uid('att'), empId:e.id, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo}; DB.attendance.push(rec); }
-  let tipo;
-  if(!rec.entrada){ rec.entrada=hora; rec.estado = hora > '08:05' ? 'Tarde' : 'A tiempo'; rec.metodo=metodo; tipo='Entrada'; }
-  else if(!rec.salida){ rec.salida=hora; rec.metodo=metodo; tipo='Salida'; }
-  else { kioscoSetStatus('err', `${e.nombre} ya tiene entrada y salida registradas hoy.`); return; }
+  if(!rec){ rec = {id:uid('att'), empId:e.id, fecha:DEMO_TODAY, entrada:null, salida:null, estado:'A tiempo', metodo, marcas:[]}; DB.attendance.push(rec); }
+  if(!rec.marcas) rec.marcas = marcasDeRegistro(rec);
+  /* Permite varios ciclos de entrada/salida en el mismo día: se alterna según
+     cuál fue la última marcación registrada (si la última fue "Salida" o no
+     hay ninguna, la siguiente es "Entrada"; si estaba abierta, es "Salida"). */
+  const ultima = rec.marcas[rec.marcas.length-1];
+  const tipo = (!ultima || ultima.tipo==='Salida') ? 'Entrada' : 'Salida';
+  rec.marcas.push({hora, tipo});
+  rec.metodo = metodo;
+  if(tipo==='Entrada'){
+    if(!rec.entrada){ rec.entrada = hora; rec.estado = hora > '08:05' ? 'Tarde' : 'A tiempo'; }
+  } else {
+    rec.salida = hora; // guarda la última salida del día para compatibilidad
+  }
+  rec.horasDia = Math.round(horasDeRegistro(rec).horas*100)/100;
   sbRegistrarMarcacion(rec);
-  kioscoSetStatus('ok', `${tipo} registrada — ${e.nombre} (${hora})`);
+  kioscoSetStatus('ok', `${tipo} registrada — ${e.nombre} (${hora}) · ${rec.horasDia}h trabajadas hoy`);
+  verificarAlertaHoras(e);
+  return tipo;
 }
 function kioscoMarcarManual(){
   const ced = ($('#kk_cedula').value||'').trim();
@@ -2339,12 +2543,24 @@ function kioscoMarcarManual(){
   kioscoRegistrarMarcacion(e, 'Manual');
   const i=$('#kk_cedula'); if(i) i.value='';
 }
+/* Igual que con la asignación de tag: solo puede haber una sesión de escaneo
+   NFC activa a la vez. Si se vuelve a presionar "Escanear tarjeta NFC" (o se
+   cambia de pestaña y se regresa) sin haber cancelado la sesión anterior,
+   Chrome puede dejar dos escuchas activas y un mismo toque de tarjeta
+   terminaría registrando entrada y salida al mismo tiempo. */
+let _nfcScanController = null;
+let _kioscoUltimaMarcacion = {}; // empId -> timestamp ms, evita registrar dos veces la misma lectura
 async function kioscoEscanearNFC(){
   if(!('NDEFReader' in window)){ kioscoSetStatus('err','Web NFC no disponible en este dispositivo/navegador.'); return; }
+  if(_nfcScanController){ _nfcScanController.abort(); _nfcScanController = null; }
+  const controller = new AbortController();
+  _nfcScanController = controller;
+  const btn = $('#kk_nfc_btn');
   try{
     const reader = new NDEFReader();
-    await reader.scan();
+    await reader.scan({ signal: controller.signal });
     kioscoSetStatus('idle','Acerca la tarjeta al lector…');
+    if(btn){ btn.disabled = true; btn.textContent = '📶 Escuchando… acerca la tarjeta'; }
     reader.onreading = (event)=>{
       let cedula = '';
       for(const record of event.message.records){
@@ -2353,10 +2569,19 @@ async function kioscoEscanearNFC(){
       if(!cedula) cedula = event.serialNumber||'';
       const e = kioscoBuscarPorCedula(cedula);
       if(!e){ kioscoSetStatus('err','Tarjeta no reconocida — verifica que tenga grabada la cédula del colaborador.'); return; }
-      kioscoRegistrarMarcacion(e, 'NFC');
+      const ahora = Date.now();
+      if(ahora - (_kioscoUltimaMarcacion[e.id]||0) < 4000) return; // ignora lecturas repetidas del mismo toque
+      _kioscoUltimaMarcacion[e.id] = ahora;
+      const tipo = kioscoRegistrarMarcacion(e, 'NFC');
+      if(tipo) mostrarCheckExito(`${tipo} registrada — ${e.nombre}`);
     };
     reader.onreadingerror = ()=> kioscoSetStatus('err','No se pudo leer la tarjeta, intenta de nuevo.');
-  } catch(err){ kioscoSetStatus('err','No se pudo activar el lector NFC: '+err.message); }
+  } catch(err){
+    if(_nfcScanController===controller) _nfcScanController = null;
+    if(btn){ btn.disabled=false; btn.textContent='📶 Escanear tarjeta NFC'; }
+    if(err.name==='AbortError'){ /* cancelada a propósito por un nuevo intento, no es un error real */ }
+    else { kioscoSetStatus('err','No se pudo activar el lector NFC: '+err.message); }
+  }
 }
 function b64uToBuf(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; const bin=atob(s); const buf=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i); return buf.buffer; }
 function bufToB64u(buf){ let bin=''; new Uint8Array(buf).forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -2443,6 +2668,14 @@ async function initApp(){
 }
 window.addEventListener('hashchange', irSegunHash);
 initApp();
+
+/* Revisa cada minuto si algún colaborador activo superó la jornada semanal
+   máxima, mientras el panel de administrador esté abierto (la alarma sonora
+   solo tiene sentido si hay alguien frente a esta pantalla para escucharla). */
+setInterval(()=>{
+  const rootAdmin = $('#rootAdmin');
+  if(rootAdmin && !rootAdmin.classList.contains('hidden')) verificarTodasLasAlertasHoras();
+}, 60000);
 </script>
 </body>
 </html>
