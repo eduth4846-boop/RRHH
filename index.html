@@ -912,9 +912,10 @@ function abrirFormEmpleado(id){
     <div class="field">
       <label>Tag NFC (marcación de ingreso y salida)</label>
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="asignarTagNFC()">📶 Asignar tag NFC</button>
+        <button type="button" id="nfc_btn" class="btn btn-ghost btn-sm" onclick="asignarTagNFC()">📶 Asignar tag NFC</button>
         <span id="nfc_form_status" style="font-size:12px; color:var(--muted);">La cédula debe estar diligenciada antes de grabar el tag.</span>
       </div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:4px;">Presiona el botón una sola vez y acerca el tag al lector NFC del celular; no lo vuelvas a presionar mientras diga "Acerca el tag…".</div>
     </div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="guardarEmpleado('${id||''}')">Guardar</button>`;
   openModal(e? 'Editar colaborador' : 'Nuevo colaborador', body, foot);
@@ -922,22 +923,44 @@ function abrirFormEmpleado(id){
 /* Graba la cédula del colaborador (tomada del formulario, aunque aún no se
    haya guardado) en un tag NFC físico. El kiosco de marcación (kioscoEscanearNFC)
    lee ese mismo valor para identificar al colaborador al marcar ingreso/salida. */
+/* Controla que solo haya una escritura NFC activa a la vez: si el usuario
+   presiona el botón de nuevo mientras hay una escritura pendiente (esperando
+   que acerque el tag), Chrome cancela la anterior con el error "Push is
+   cancelled due to a new push request". Por eso cancelamos cualquier
+   escritura previa antes de iniciar una nueva, y deshabilitamos el botón
+   mientras está en curso para que no se pueda disparar dos veces seguidas. */
+let _nfcWriteController = null;
 async function asignarTagNFC(){
   const statusEl = $('#nfc_form_status');
+  const btnEl = $('#nfc_btn');
   const cedula = ($('#f_cedula')?.value||'').trim();
   if(!cedula){ if(statusEl){ statusEl.textContent='Escribe primero la cédula del colaborador.'; statusEl.style.color='var(--danger)'; } return; }
   if(!('NDEFReader' in window)){
     if(statusEl){ statusEl.textContent='Web NFC no está disponible en este dispositivo o navegador (usa Chrome en Android).'; statusEl.style.color='var(--danger)'; }
     return;
   }
+  /* cancela cualquier escritura anterior que siga esperando un tag */
+  if(_nfcWriteController){ _nfcWriteController.abort(); _nfcWriteController = null; }
+  const controller = new AbortController();
+  _nfcWriteController = controller;
+  if(btnEl) btnEl.disabled = true;
   try{
-    if(statusEl){ statusEl.textContent='Acerca el tag NFC al lector para grabarlo…'; statusEl.style.color='var(--muted)'; }
+    if(statusEl){ statusEl.textContent='Acerca el tag NFC al lector…'; statusEl.style.color='var(--muted)'; }
     const writer = new NDEFReader();
-    await writer.write({ records:[{ recordType:'text', data:cedula }] });
+    await writer.write({ records:[{ recordType:'text', data:cedula }] }, { signal: controller.signal });
     if(statusEl){ statusEl.textContent='✓ Tag NFC asignado correctamente a la cédula '+cedula+'.'; statusEl.style.color='var(--success)'; }
     toast('Tag NFC asignado correctamente');
   } catch(err){
-    if(statusEl){ statusEl.textContent='No se pudo grabar el tag: '+err.message; statusEl.style.color='var(--danger)'; }
+    if(err.name==='AbortError'){
+      /* esta escritura fue cancelada a propósito por un nuevo intento; no mostramos error */
+    } else if(/cancel/i.test(err.message)){
+      if(statusEl){ statusEl.textContent='Se canceló la grabación porque el botón se presionó más de una vez. Presiónalo una sola vez y acerca el tag de inmediato.'; statusEl.style.color='var(--danger)'; }
+    } else {
+      if(statusEl){ statusEl.textContent='No se pudo grabar el tag: '+err.message; statusEl.style.color='var(--danger)'; }
+    }
+  } finally {
+    if(_nfcWriteController===controller) _nfcWriteController = null;
+    if(btnEl) btnEl.disabled = false;
   }
 }
 async function guardarEmpleado(id){
